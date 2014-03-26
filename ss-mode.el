@@ -13,6 +13,7 @@
 
 (defvar ss-mode-empty-name "*Sams Spreadsheet Mode*")
 (defvar ss-mode-column-widths (list ))
+(defvar ss-mode-data [nil])
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar ss-mode-map  (make-sparse-keymap 'ss-mode-map))
@@ -39,29 +40,23 @@
   "Read a CSV file into ss-mode"
   (interactive "f")
   (find-file (concat filename ".ses"))
+  (setq ss-mode-data [ ])
   (with-temp-buffer
    (insert-file-contents filename)
      (beginning-of-buffer)
      (while (not (eobp))
-       (let ((x 0)
+       (let ((x 0) (cell "") (row [])
 	     (line (thing-at-point 'line)))
 	 (dolist (cell (split-string line ","))
-	   ;(if (and (char-equal "\"" (substring cell 0 0))
-	;	    (char-equal "\"" (substring cell -1 -1)))
-	 ;      (set cell (substring cell 1 -1)))
-	   (with-current-buffer
-	       (let* ((rowcol  (ses-sym-rowcol ses--curcell))
-		      (row     (car rowcol))
-		      (col     (cdr rowcol)))
-		 (ses-cell-set-formula row col cell)
-		 (ses-forward-or-insert)
-		 (set x row)
-		 )
-	     )
-	   )
+	   (if (and (char-equal "\"" (substring cell 0 0))
+		    (char-equal "\"" (substring cell -1 -1)))
+	       (setq cell (substring cell 1 -1)) nil )
+	   (setq row (vconcat row '((formula . cell)) ))
+	  )
+	 (setq ss-mode-data (vconcat ss-mode-data row))
 	 (with-current-buffer (ses-goto-print (x+1) 0))
 	 (next-line) 
-	 ))))
+	 ))) )
 
 
 (define-derived-mode ss-mode tabulated-list-mode ss-mode-empty-name
