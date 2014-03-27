@@ -10,6 +10,14 @@
 
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defface spread-cell-face
+  '((((class grayscale) (background light)) (:foreground "LightGray" :bold t))
+    (((class grayscale) (background dark)) (:foreground "DimGray" :bold t))
+    (((class color) (background light)) (:foreground "Purple"))
+    (((class color) (background dark)) (:foreground "Blue" :bold t))
+    (t (:bold t)))
+  "Spread-mode face used to highlight cells"
+  :group 'spread-mode)
 
 (defvar ss-mode-empty-name "*Sams Spreadsheet Mode*")
 (defvar ss-mode-column-widths (list ))
@@ -33,6 +41,65 @@
 
 ;; ;;;;;;;;;;;;; functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SAM's SES MACROS
+
+;;;###autoload
+(define-derived-mode ss-mode tabulated-list-mode ss-mode-empty-name
+  "ss game mode
+  Keybindings:
+  \\{ss-mode-map} "
+  (use-local-map ss-mode-map)
+  ;; (unless (featurep 'emacs)
+  ;;   (setq mode-popup-menu
+  ;;         '("ss Commands"
+  ;;           ["Start new game"        ss-start-game]
+  ;;           ["End game"                ss-end-game
+  ;;            (ss-active-p)]
+  ;;           ))
+  (setq tabulated-list-format [("" 4 t)]) ;; 0th row is for numbers
+  (let ((a 0) (w nil))
+    (dotimes (a 10)
+      (setq w (elt ss-mode-column-widths a))     
+      (setq tabulated-list-format (vconcat tabulated-list-format (list (list (char-to-string (+ ?A a)) 
+									 12 t)))) ))
+  (setq tabulated-list-padding 0)
+  (tabulated-list-init-header) )
+
+;;;###autoload
+(defun ss-mode ()
+  "Open SS mode
+     ss-mode keybindings:
+     \\<ss-mode-map>
+\\[ss-start-game]        Start a new game
+\\[ss-end-game]        Terminate the current game
+\\[ss-move-left]        Moves the board to the left
+\\[ss-move-right]        Moves the board to the right
+\\[ss-move-up]        Moves the board to the up
+\\[ss-move-down]        Moves the board to the down
+"
+  (interactive)
+  (pop-to-buffer ss-mode-empty-name nil)
+  (ss-draw)
+)
+
+
+
+(defun ss-draw ()
+  (interactive)
+  (ss-listing-command)
+  (tabulated-list-print t))
+
+(defun ss-listing-command ()
+  (interactive)
+  (let ((tbl (list) ))
+    (dotimes (i (length ss-mode-data))
+      (let (row (aref ss-mode-data i) (trow (vector)))
+	(dotimes (j (length row)) 
+	  (let ((cell nil)) 
+	    (setq trow (vconcat trow (list (elt row j)))) ) )
+	(setq row trow)
+	(add-to-list 'tbl (list (+ 1 i) (dolist  (aref ss-mode-data i)) 1 (lambda (a b) nil))) ))
+    (setq tabulated-list-entries tbl) ))
+
 
 (defun ss-close () (interactive)
 (kill-buffer (current-buffer)) )
@@ -61,56 +128,7 @@
 	 ))) )
 
 
-(define-derived-mode ss-mode tabulated-list-mode ss-mode-empty-name
-  "ss game mode
-  Keybindings:
-  \\{ss-mode-map} "
-  (use-local-map ss-mode-map)
-  ;; (unless (featurep 'emacs)
-  ;;   (setq mode-popup-menu
-  ;;         '("ss Commands"
-  ;;           ["Start new game"        ss-start-game]
-  ;;           ["End game"                ss-end-game
-  ;;            (ss-active-p)]
-  ;;           ))
-  (setq tabulated-list-format [("" 4 t)]) ;; 0th row is for numbers
-  (let ((a 0) (w nil))
-    (dotimes (a 10)
-      (setq w (elt ss-mode-column-widths a))     
-      (setq tabulated-list-format (vconcat tabulated-list-format (list (list (char-to-string (+ ?A a)) 
-									 12 t)))) ))
-  (setq tabulated-list-padding 0)
-  (tabulated-list-init-header) )
 
-(defun ss-draw ()
-  (interactive)
-;  (ss-listing-command)
-  (tabulated-list-print t))
-
-(defun ss-listing-command ()
-  (interactive)
-  ;;  (ss-mode)
-  (let ((tbl (list) ))
-    (dotimes (i (length ss-data))
-	(add-to-list 'tbl (list (+ 1 i) (copy sequence) (aref ss-data i)) 1 (lambda (a b) nil)) )
-    (setq tabulated-list-entries tbl) ))
-
-;;;###autoload
-(defun ss-mode-fun ()
-  "Open SS mode
-     ss-mode keybindings:
-     \\<ss-mode-map>
-\\[ss-start-game]        Start a new game
-\\[ss-end-game]        Terminate the current game
-\\[ss-move-left]        Moves the board to the left
-\\[ss-move-right]        Moves the board to the right
-\\[ss-move-up]        Moves the board to the up
-\\[ss-move-down]        Moves the board to the down
-"
-  (interactive)
-  (pop-to-buffer ss-mode-empty-name nil)
-  (ss-mode)
-  (ss-start-game))
 
 
 (provide 'ss-mode)
