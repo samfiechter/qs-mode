@@ -84,7 +84,7 @@
 
 (defun ss-draw ()
   (interactive)
-;  (ss-listing-command)GitHub1,azn,wGitHub1,azn,w
+;  (ss-listing-command)
   (tabulated-list-print t))
 
 (defun ss-listing-command ()
