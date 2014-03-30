@@ -21,7 +21,7 @@
 
 (defvar ss-mode-empty-name "*Sams Spreadsheet Mode*")
 (defvar ss-mode-column-widths (list ))
-(defvar ss-mode-data [ ["do" "Re"] ["me" "fa"]])
+
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar ss-mode-map  (make-sparse-keymap 'ss-mode-map))
@@ -29,10 +29,12 @@
 
 (define-key ss-mode-map "q"                'ss-close)
 
-;; (define-key ss-mode-map [left]        'ss-move-left)
-;; (define-key ss-mode-map [right]        'ss-move-right)
-;; (define-key ss-mode-map [up]                'ss-move-up)
-;; (define-key ss-mode-map [down]        'ss-move-down)
+ (define-key ss-mode-map [left]        'forward-button)
+ (define-key ss-mode-map [right]        'backward-sexp)
+ (define-key ss-mode-map [up]                'previous-sexp)
+ (define-key ss-mode-map [down]        'next-line)
+ (define-key ss-mode-map [enter]        'edit-cell)
+
 
 
 (defvar ss-null-map
@@ -47,8 +49,10 @@
   "ss game mode
   Keybindings:
   \\{ss-mode-map} "
+
   (use-local-map ss-mode-map)
-  ;; (unless (featurep 'emacs)
+ 
+ ;; (unless (featurep 'emacs)
   ;;   (setq mode-popup-menu
   ;;         '("ss Commands"
   ;;           ["Start new game"        ss-start-game]
@@ -57,15 +61,19 @@
   ;;           ))
   (setq tabulated-list-format [("" 4 t)]) ;; 0th row is for numbers
   (let ((a 0) (w nil))
-    (dotimes (a 10)
+    (dotimes (a 3 )
       (setq w (elt ss-mode-column-widths a))     
       (setq tabulated-list-format (vconcat tabulated-list-format (list (list (char-to-string (+ ?A a)) 
 									 12 t)))) ))
   (setq tabulated-list-padding 0)
-  (tabulated-list-init-header) )
+  (pop-to-buffer ss-mode-empty-name nil)
+  (setq tabulated-list-entries (list (list "1" [ "1" "1" "2" "3"] ) 
+				     (list "2" [ "2" "4" "5" "6" ] )))
+  (tabulated-list-init-header) 
+  (tabulated-list-print t))
 
 ;;;###autoload
-(defun ss-mode ()
+(defun ss-mode-fun ()
   "Open SS mode
      ss-mode keybindings:
      \\<ss-mode-map>
@@ -78,27 +86,12 @@
 "
   (interactive)
   (pop-to-buffer ss-mode-empty-name nil)
-  (ss-draw)
+  (ss-mode)
+)
+(defun ss-edit-cell ()
+(interactive)
 )
 
-
-
-(defun ss-draw ()
-  (interactive)
-  (ss-listing-command)
-  (tabulated-list-print t))
-
-(defun ss-listing-command ()
-  (interactive)
-  (let ((tbl (list) ))
-    (dotimes (i (length ss-mode-data))
-      (let (row (aref ss-mode-data i) (trow (vector)))
-	(dotimes (j (length row)) 
-	  (let ((cell nil)) 
-	    (setq trow (vconcat trow (list (elt row j)))) ) )
-	(setq row trow)
-	(add-to-list 'tbl (list (+ 1 i) (dolist  (aref ss-mode-data i)) 1 (lambda (a b) nil))) ))
-    (setq tabulated-list-entries tbl) ))
 
 
 (defun ss-close () (interactive)
@@ -120,8 +113,7 @@
 	   (if (and (char-equal "\"" (substring cell 0 0))
 		    (char-equal "\"" (substring cell -1 -1)))
 	       (setq cell (substring cell 1 -1)) nil )
-	   (setq row (vconcat row (list '((formula  cell))) ))
-	  )
+	   (setq row (vconcat row (list  cell))) )
 	 (setq ss-mode-data (vconcat ss-mode-data row))
 	 (with-current-buffer (ses-goto-print (x+1) 0))
 	 (next-line) 
