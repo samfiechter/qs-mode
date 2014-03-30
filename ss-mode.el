@@ -21,6 +21,8 @@
 
 (defvar ss-mode-empty-name "*Sams Spreadsheet Mode*")
 (defvar ss-mode-column-widths (list ))
+(defvar ss-mode-cur-col 0)
+(defvar ss-mode-cur-row 0)
 
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -29,11 +31,11 @@
 
 (define-key ss-mode-map "q"                'ss-close)
 
- (define-key ss-mode-map [left]        'forward-button)
- (define-key ss-mode-map [right]        'backward-sexp)
- (define-key ss-mode-map [up]                'previous-sexp)
+ (define-key ss-mode-map [left]        'backward-sexp)
+ (define-key ss-mode-map [right]        'forward-sexp)
+ (define-key ss-mode-map [up]                'previous-line)
  (define-key ss-mode-map [down]        'next-line)
- (define-key ss-mode-map [enter]        'edit-cell)
+ (define-key ss-mode-map (kbd "RET")        'ss-edit-cell)
 
 
 
@@ -67,8 +69,9 @@
 									 12 t)))) ))
   (setq tabulated-list-padding 0)
   (pop-to-buffer ss-mode-empty-name nil)
+  (setq cursor-type nil)
   (setq tabulated-list-entries (list (list "1" [ "1" "1" "2" "3"] ) 
-				     (list "2" [ "2" "4" "5" "6" ] )))
+				     (list "2" [ "33333333333333333333333332" "4" "5" "6" ] )))
   (tabulated-list-init-header) 
   (tabulated-list-print t))
 
@@ -86,16 +89,21 @@
 "
   (interactive)
   (pop-to-buffer ss-mode-empty-name nil)
+
   (ss-mode)
 )
+
+
+
 (defun ss-edit-cell ()
 (interactive)
-)
-
+(let row (elt tabulated-list-entry 1)
+     (setq row tabulated-list-get-id (read-string "Cell Value:" (aref row tabulated-list-get-id)))
+     (tabulated-list-print t) ))
 
 
 (defun ss-close () (interactive)
-(kill-buffer (current-buffer)) )
+  (kill-buffer (current-buffer)) )
 
 
 (defun ss-import-csv (filename)
