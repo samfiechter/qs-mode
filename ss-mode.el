@@ -1,3 +1,10 @@
+;	                                   _            _ 	
+;	 ___ ___       _ __ ___   ___   __| | ___   ___| |	
+;	/ __/ __|_____| '_ ` _ \ / _ \ / _` |/ _ \ / _ \ |	
+;	\__ \__ \_____| | | | | | (_) | (_| |  __/|  __/ |	
+;	|___/___/     |_| |_| |_|\___/ \__,_|\___(_)___|_|	
+;	                                                  	
+
 ;;; ss-mode -- Spreadsheet Mode -- Tabular interface to Calc
 ;; Copyright (C) 2014 -- Use at 'yer own risk  -- NO WARRANTY!
 ;; Author: sam fiechter sam.fiechter(at)gmail
@@ -10,14 +17,17 @@
 
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defface spread-cell-face
-  '((((class grayscale) (background light)) (:foreground "LightGray" :bold t))
-    (((class grayscale) (background dark)) (:foreground "DimGray" :bold t))
-    (((class color) (background light)) (:foreground "Purple"))
-    (((class color) (background dark)) (:foreground "Blue" :bold t))
-    (t (:bold t)))
-  "Spread-mode face used to highlight cells"
-  :group 'spread-mode)
+(defface ss-mode-highlight-face   '((((class grayscale) (background light))
+				     (:background "Black" :foreground "White" :bold t))
+				    (((class grayscale) (background dark))
+				     (:background "white" :foreground "black" :bold t)) 
+				    (((class color) (background light))
+				     (:background "Blue" :foreground "White" :bold t))
+				    (((class color) (background dark))
+				     (:background "White" :foreground "Blue" :bold t))
+				    (t (:inverse-video t :bold t)))
+  "ss-mode face used to highlight cells"
+  :group 'ss-mode)
 
 (defvar ss-mode-empty-name "*Sams Spreadsheet Mode*")
 (defvar ss-mode-column-widths (list ))
@@ -31,11 +41,11 @@
 
 (define-key ss-mode-map "q"                'ss-close)
 
- (define-key ss-mode-map [left]        'backward-sexp)
- (define-key ss-mode-map [right]        'forward-sexp)
- (define-key ss-mode-map [up]                'previous-line)
- (define-key ss-mode-map [down]        'next-line)
- (define-key ss-mode-map (kbd "RET")        'ss-edit-cell)
+(define-key ss-mode-map [left]          'ss-move-left)
+(define-key ss-mode-map [right]        'ss-move-right)
+(define-key ss-mode-map [up]           'ss-move-up)
+(define-key ss-mode-map [down]         'ss-move-down)
+(define-key ss-mode-map (kbd "RET")        'ss-edit-cell)
 
 
 
@@ -45,6 +55,21 @@
 
 ;; ;;;;;;;;;;;;; functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SAM's SES MACROS
+(defun ss-move-left ()
+  (interactive)
+  (ss-mode-move-cur-cell -1 0))
+
+(defun ss-move-right ()
+  (interactive)
+  (ss-mode-move-cur-cell 1 0))
+
+(defun ss-move-up ()
+  (interactive)
+  (ss-mode-move-cur-cell 0 -1))
+
+(defun ss-move-down ()
+  (interactive)
+  (ss-mode-move-cur-cell 0 1 ))
 
 ;;;###autoload
 (define-derived-mode ss-mode tabulated-list-mode ss-mode-empty-name
@@ -72,8 +97,10 @@
   (setq cursor-type nil)
   (setq tabulated-list-entries (list (list "1" [ "1" "1" "2" "3"] ) 
 				     (list "2" [ "33333333333333333333333332" "4" "5" "6" ] )))
-  (tabulated-list-init-header) 
-  (tabulated-list-print t))
+  (setq ss-mode-cur-row 0)
+  (setq ss-mode-cur-col 0)
+  (tabulated-list-init-header)
+  (ss-mode-move-cur-cell 0 0 ) )
 
 ;;;###autoload
 (defun ss-mode-fun ()
@@ -89,11 +116,27 @@
 "
   (interactive)
   (pop-to-buffer ss-mode-empty-name nil)
-
-  (ss-mode)
-)
+  (ss-mode) )
 
 
+
+
+(defun ss-mode-move-cur-cell (x y) (interactive)
+  (let* ((row (elt (elt tabulated-list-entries ss-mode-cur-row) 1))
+	 (cell-value (aref row ss-mode-cur-col))
+	 (new-row (+ ss-mode-cur-row y))
+	 (new-col (+ ss-mode-cur-col x)))
+	 (if (and (<= 0 new-row) (> (length tabulated-list-entries) new-row)
+		  (<= 0 new-col) (> (length row) new-col))
+	     (progn
+	       (aset row ss-mode-cur-col (propertize cell-value 'font-lock-face '(:default t)))
+	       (setq ss-mode-cur-row new-row)
+	       (setq ss-mode-cur-col new-col)
+	       (setq row (elt (elt tabulated-list-entries ss-mode-cur-row) 1))
+	       (setq cell-value (aref row ss-mode-cur-col))
+	       (aset row ss-mode-cur-col (propertize cell-value 'font-lock-face '(:inverse-video t))) )))
+  (tabulated-list-print t) )
+  
 
 (defun ss-edit-cell ()
 (interactive)
