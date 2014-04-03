@@ -7,7 +7,7 @@
 
 ;;; ss-mode -- Spreadsheet Mode -- Tabular interface to Calc
 ;; Copyright (C) 2014 -- Use at 'yer own risk  -- NO WARRANTY!
-;; Author: sam fiechter sam.fiechter(at)gmail
+;; Author: sam fiechter sam.fiechter(at)gmailxs
 ;; Version: 0.000000000000001
 ;; Created: 2014-03-24
 ;; Keywords: calc, tabular 
