@@ -14,7 +14,7 @@
 
 
 ;;;Code
-
+(require 'avl-tree)
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defface ss-mode-highlight-face   '((((class grayscale) (background light))
@@ -30,16 +30,20 @@
   :group 'ss-mode)
 
 (defvar ss-mode-empty-name "*Sams Spreadsheet Mode*")
-(defvar ss-mode-column-widths (list ))
+
 (defvar ss-mode-cur-col 0)
-(defvar ss-mode-cur-row 0)
+(defvar ss-mode-max-col 10)
+(defvar ss-mode-col-widths (make-vector ss-mode-max-col 7))
+
+
+(Defvar ss-mode-cur-row 0)
+
+(defvar ss-mode-max-row 10)
+(defvar ss-mode-data (avl-tree-create 'ss-mode-avl-cmp))
 
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar ss-mode-map  (make-sparse-keymap 'ss-mode-map))
-
-
-(define-key ss-mode-map "q"                'ss-close)
 
 (define-key ss-mode-map [left]          'ss-move-left)
 (define-key ss-mode-map [right]        'ss-move-right)
@@ -47,14 +51,86 @@
 (define-key ss-mode-map [down]         'ss-move-down)
 (define-key ss-mode-map (kbd "RET")        'ss-edit-cell)
 
-
-
-(defvar ss-null-map
-  (make-sparse-keymap 'ss-null-map))
-(define-key ss-null-map "n"                'ss-start-game)
-
 ;; ;;;;;;;;;;;;; functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SAM's SES MACROS
+
+(defun ss-mode-avl-cmp (a b)
+  (let ((A (if (sequencep a) (elt a 0) a)) (B (if (sequencep b) (elt b 0) b)))  ; a or b can be vectors or addresses
+    (< (ss-mode-to-index A) (ss-mode-to-index B)) ) )
+       
+(defun ss-mode-to-index (a)
+  "Convert from ss-mode to index  -- requires [A-Z]+[0-9]+"
+  (if (sequencep a)
+      (progn 
+	(let ((out 0) (i 0))
+	  (while (and  (< i (length a)) (< 64 (elt a i)))
+	    (setq out (+ (* 26 out)  (- (logand -33 (elt a i)) 64)))
+	    (setq i (+ 1 i)))
+	  (setq out (+ (* out ss-mode-max-row) (string-to-int (substring a i))))
+	  out))
+    a) )
+
+(defun ss-mode-col-letter (a)
+  "returns the letter of the column id arg"
+  (let ((out "") (n 1))
+    (while (<= 0 a)
+      (setq out (concat (char-to-string (+ 65 (% a 26))) out))
+      (setq a  (- (/ a 26) 1)) )
+    out ))
+
+      
+
+(defun ss-mode-print ()
+  "Populate the current ss-mode buffer."
+  (let ((i 0) (j 0) (k 0))
+    (erase-buffer)
+    (let ((header "    "))
+    (dotimes (i ss-mode-max-col)
+      (let* ((l (ss-mode-col-letter i))
+	     (ll (length l))
+	     (pl (/ (- (* 2 (elt ss-mode-column-widths i) ll)  2))))
+	(setq header (concat header (make-string pl " ") l (make-string (- (elt ss-mode-column-widths i) (+ pl ll)) " "))) ))
+    (insert  (propertize header 'font-lock-face '(:inverse-video t))) )
+    (dotimes (i ss-mode-max-col)
+      (dotimes (j ss-mode-max-row)
+	(let ((m (avl-tree-member (+ j (* ss-mode-max-row (+ i 1)))))
+	      (if (m)
+		  ( ;; draw the bastard
+		   )
+		   (;; draw blank spance if no formula
+		    ))
+    ;; Print the resulting list.
+    (dolist (elt entries)
+      (and entry-id
+	   (equal entry-id (car elt))
+	   (setq saved-pt (point)))
+      (apply tabulated-list-printer elt))
+    (set-buffer-modified-p nil)
+    ;; If REMEMBER-POS was specified, move to the "old" location.
+    (if saved-pt
+	(progn (goto-char saved-pt)
+	       (move-to-column saved-col)
+	       (recenter))
+      (goto-char (point-min)))))
+
+(defun tabulated-list-print-entry (id cols)
+  "Insert a Tabulated List entry at point.
+This is the default `tabulated-list-printer' function.  ID is a
+Lisp object identifying the entry to print, and COLS is a vector
+of column descriptors."
+  (let ((beg   (point))
+	(x     (max tabulated-list-padding 0))
+	(ncols (length tabulated-list-format))
+	(inhibit-read-only t))
+    (if (> tabulated-list-padding 0)
+	(insert (make-string x ?\s)))
+    (dotimes (n ncols)
+      (setq x (tabulated-list-print-col n (aref cols n) x)))
+    (insert ?\n)
+    (put-text-property beg (point) 'tabulated-list-id id)
+    (put-text-property beg (point) 'tabulated-list-entry cols)))
+
+
 (defun ss-move-left ()
   (interactive)
   (ss-mode-move-cur-cell -1 0))
@@ -72,11 +148,10 @@
   (ss-mode-move-cur-cell 0 1 ))
 
 ;;;###autoload
-(define-derived-mode ss-mode tabulated-list-mode ss-mode-empty-name
+(define-derived-mode ss-mode text-mode ss-mode-empty-name
   "ss game mode
   Keybindings:
   \\{ss-mode-map} "
-
   (use-local-map ss-mode-map)
  
  ;; (unless (featurep 'emacs)
@@ -86,21 +161,14 @@
   ;;           ["End game"                ss-end-game
   ;;            (ss-active-p)]
   ;;           ))
-  (setq tabulated-list-format [("" 4 t)]) ;; 0th row is for numbers
-  (let ((a 0) (w nil))
-    (dotimes (a 3 )
-      (setq w (elt ss-mode-column-widths a))     
-      (setq tabulated-list-format (vconcat tabulated-list-format (list (list (char-to-string (+ ?A a)) 
-									 12 t)))) ))
-  (setq tabulated-list-padding 0)
-  (pop-to-buffer ss-mode-empty-name nil)
+
+
+      (pop-to-buffer ss-mode-empty-name nil)
   (setq cursor-type nil)
-  (setq tabulated-list-entries (list (list "1" [ "1" "1" "2" "3"] ) 
-				     (list "2" [ "33333333333333333333333332" "4" "5" "6" ] )))
   (setq ss-mode-cur-row 0)
   (setq ss-mode-cur-col 0)
-  (tabulated-list-init-header)
-  (ss-mode-move-cur-cell 0 0 ) )
+  (ss-mode-move-cur-cell 0 0 )
+  ) 
 
 ;;;###autoload
 (defun ss-mode-fun ()
@@ -140,9 +208,18 @@
 
 (defun ss-edit-cell ()
 (interactive)
-(let row (elt tabulated-list-entry 1)
-     (setq row tabulated-list-get-id (read-string "Cell Value:" (aref row tabulated-list-get-id)))
-     (tabulated-list-print t) ))
+(let* ((row (elt (elt tabulated-list-entries ss-mode-cur-row) 1))
+       (cell-value (read-string "Cell Value:" (aref row ss-mode-cur-col))))
+  (if (= 61 (elt cell-value 0)) ; new value starts with =
+      (ss-set-function cell-value)
+     (aset row ss-mode-cur-col (propertize cell-value 'font-lock-face '(:inverse-video t))) ))
+  (tabulated-list-print t) )
+
+(defun ss-set-function (fun)
+  "Sets the function for current cell to value"
+
+  )
+
 
 
 (defun ss-close () (interactive)
