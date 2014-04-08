@@ -78,7 +78,25 @@
       (setq a  (- (/ a 26) 1)) )
     out ))
 
-      
+(defun ss-pad-center (s i)
+  "pad a string out to center it"
+  (let* ( (ll (length s))
+	  (pl (/ (- (* 2 (elt ss-mode-column-widths i) ll)  2)))  ; half the pad length
+	  (pad (make-string (- (elt ss-mode-column-widths i) (+ pl ll)) " " )))
+	(concat (make-string pl " ") s pad) ))
+
+(defun ss-pad-left (s i)
+  "pad to the leftt"
+  (let ( (ll (length s))
+	 (pad (make-string (- (elt ss-mode-column-widths i) (+ pl ll)) " " )))
+	(concat s pad) ))
+
+(defun ss-pad-right (s i)
+  "pad to the right"
+  (let* ( (ll (length s))
+	  (pad (make-string (- (elt ss-mode-column-widths i) (+ pl ll)) " " )))
+	(concat pad s) ))
+
 
 (defun ss-mode-print ()
   "Populate the current ss-mode buffer."
@@ -86,26 +104,19 @@
     (erase-buffer)
     (let ((header "    "))
     (dotimes (i ss-mode-max-col)
-      (let* ((l (ss-mode-col-letter i))
-	     (ll (length l))
-	     (pl (/ (- (* 2 (elt ss-mode-column-widths i) ll)  2))))
-	(setq header (concat header (make-string pl " ") l (make-string (- (elt ss-mode-column-widths i) (+ pl ll)) " "))) ))
-    (insert  (propertize header 'font-lock-face '(:inverse-video t))) )
-    (dotimes (i ss-mode-max-col)
-      (dotimes (j ss-mode-max-row)
-	(let ((m (avl-tree-member (+ j (* ss-mode-max-row (+ i 1)))))
+      (setq header (concat header (ss-pad-center (ss-mode-col-letter i) i))))
+    (dotimes (j ss-mode-max-row)
+      (if (= 0 j)
+	  (insert  (propertize header 'font-lock-face '(:inverse-video t)))
+	(insert (propertize (ss-pad-center (int-to-string j) j) 'font-lock-face '(:inverse-video t)))
+	(dotimes (i ss-mode-max-col)
+	  (move-end-of-line)
+	(let ((m (avl-tree-member (+ j (* ss-mode-max-row (+ i 1))))))
 	      (if (m)
-		  ( ;; draw the bastard
-		   )
-		   (;; draw blank spance if no formula
-		    ))
-    ;; Print the resulting list.
-    (dolist (elt entries)
-      (and entry-id
-	   (equal entry-id (car elt))
-	   (setq saved-pt (point)))
-      (apply tabulated-list-printer elt))
+		  (insert (ss-pad-right (number-to-string (elt m 1) i)))
+		(insert (make-string (elt ss-mode-column-widths i) " ")) ) ) ) ))
     (set-buffer-modified-p nil)
+
     ;; If REMEMBER-POS was specified, move to the "old" location.
     (if saved-pt
 	(progn (goto-char saved-pt)
