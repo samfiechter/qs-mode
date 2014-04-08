@@ -35,9 +35,7 @@
 (defvar ss-max-col 10)
 (defvar ss-col-widths (make-vector ss-max-col 7))
 
-
-(defvar ss-cur-row 0)
-
+(defvar ss-cur-row 1)
 (defvar ss-max-row 10)
 (defvar ss-row-padding 4)
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
@@ -82,26 +80,28 @@
 (defun ss-pad-center (s i)
   "pad a string out to center it"
   (let* ( (ll (length s))
-	  (pl (/ (- (* 2 (elt ss-column-widths i) ll)  2)))  ; half the pad length
-	  (pad (make-string (- (elt ss-column-widths i) (+ pl ll)) " " )))
-	(concat (make-string pl " ") s pad) ))
+	  (pl (/ (- (* 2 (elt ss-col-widths i)) ll)  2))  ; half the pad length
+	  (pad (make-string (- (elt ss-col-widths i) (+ pl ll)) (string-to-char " "))) )
+	(concat (make-string pl (string-to-char " ")) s pad) ))
 
 (defun ss-pad-left (s i)
   "pad to the leftt"
   (let ( (ll (length s))
-	 (pad (make-string (- (elt ss-column-widths i) (+ pl ll)) " " )))
+	 (pad (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ") )))
 	(concat s pad) ))
 
 (defun ss-pad-right (s i)
   "pad to the right"
   (let* ( (ll (length s))
-	  (pad (make-string (- (elt ss-column-widths i) (+ pl ll)) " " )))
+	  (pad (make-string (- (elt ss-col-widths i) ll) (string-to-char " ") )))
 	(concat pad s) ))
 
 
 (defun ss-draw-all ()
   "Populate the current ss buffer."
-  (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding " ")))
+  (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
+    (debug)
+    (beginning-of-buffer)
     (erase-buffer)
     (dotimes (i ss-max-col)  ;; make header
       (setq header (concat header (ss-pad-center (ss-col-letter i) i))))
@@ -112,9 +112,9 @@
 	  (insert (propertize (format (concat "%" (int-to-string ss-row-padding) "d") j) 'font-lock-face '(:inverse-video t)))
 	  (dotimes (i ss-max-col)
 	    (let ((m (avl-tree-member ss-data (+ j (* ss-max-row (+ i 1))))))
-	      (if (m)
+	      (if m
 		  (insert (ss-pad-right (number-to-string (elt m 1) i)))
-		(insert (make-string (elt ss-column-widths i) " ")))))))
+		(insert (make-string (elt ss-col-widths i) (string-to-char " "))))))))
       (next-line) )
     (set-buffer-modified-p nil)
     (ss-move-cur-cell 0 0) )) ;;draw cursor
@@ -125,7 +125,7 @@
   (let ((ovr   (overwrite-mode)) (col ss-row-padding) (i 0))
     (if (> x 0) 
 	(dotimes (i (- x 1))
-	  (setq col (+ col (elt ss-column-widths i)))) nil )
+	  (setq col (+ col (elt ss-col-widths i)))) nil )
     (goto-line y) (move-to-column i)
     (setq overwrite-mode overwrite-mode-binary )
     (insert text)
@@ -135,7 +135,7 @@
 
 (defun ss-move-left ()
   (interactive)
-  (if (> ss-cur-col > 0)
+  (if (> ss-cur-col  0)
       (ss-move-cur-cell -1 0) nil) )
 
 (defun ss-move-right ()
@@ -149,7 +149,7 @@
 
 (defun ss-move-up ()
   (interactive)
-  (if (> ss-cur-row >0)
+  (if (> ss-cur-row 1)
       (ss-move-cur-cell 0 -1) nil ))
     
 
@@ -211,13 +211,13 @@
 	 (new-col (+ ss-cur-col x))
 	 (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
 	 (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1))))) 
-	 (ot (if (m) (elt m 1) ""))
-	 (nt (if (n) (elt n 1) "")))
+	 (ot (if m (elt m 1) ""))
+	 (nt (if n (elt n 1) "")))
   (progn
-    (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right (number-to-string ot ss-cur-col)))
+    (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
     (setq ss-cur-row new-row)
     (setq ss-cur-col new-col)
-    (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right (number-to-string (propertize nt 'font-lock-face '(:inverse-video t)) ss-cur-col))) )))
+    (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right (propertize nt 'font-lock-face '(:inverse-video t)) ss-cur-col)) )))
   
   
 
@@ -225,13 +225,12 @@
   "edit the selected cell"
   (interactive)
   (let*  ( (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
-	   (ot (if (m) (elt m 1) ""))
+	   (ot (if m (elt m 1) ""))
 	   (nt (cell-value (read-string "Cell Value:" ot ))) )
     (if (= 61 (elt cell-value 0)) ; new value starts with  =
 	(nil) ;; add funciton
-      (if (m)
-	  (aset m 1 nt)
-	(progn
+      (if m (aset m 1 nt)
+	(progn  ;;else
 	  (setq m [ (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) nt])
 	  (avl-tree-enter ss-data m)  )))
     (ss-draw-cell ss-cur-col ss-cur-row (propertize (elt m 1) 'font-lock-face '(:inverse-video t))) ))
