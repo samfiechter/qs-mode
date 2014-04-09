@@ -207,7 +207,12 @@
 
 (defun ss-set-function (fun)
   "Sets the function for current cell to value"
-  
+  ;; (let* ((string "=A3* a4 ")
+  ;;     (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
+  ;;     )
+  ;; (string-match re string)
+  ;; (substring string (match-beginning 1)  (match-end 1)))
+
   )
 
 
