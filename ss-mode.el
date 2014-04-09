@@ -132,13 +132,16 @@
   "redraw one cell on the ss"
   (let ((col ss-row-padding) (i 0))
     (pop-to-buffer ss-empty-name nil)
+    (setq cursor-type nil)  ;; no cursor
+    (setq truncate-lines 1)  ;; no wrap-around
     (dotimes (i x)
       (setq col (+ col (elt ss-col-widths i))) )
     (goto-line (+ y 1))
     (move-to-column col)
-    (message (format "Going to %d, %d" col (+ y 1)))
+    (message (format "Cell %s" (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))))
     (insert text)
     (delete-forward-char (length text))
+
     (recenter) ))
 
 
@@ -154,7 +157,7 @@
       (ss-move-cur-cell 1 0)
     (progn
       (setq ss-max-col (+ 1 ss-max-col))
-      (setq ss-col-widths (vconcat ss-col-widths (elt ss-col-widths ss-cur-col)))
+      (setq ss-col-widths   (vconcat ss-col-widths (list (elt ss-col-widths ss-cur-col))))
       (setq ss-cur-col (+ 1 ss-cur-col))
       (ss-draw-all) )))
 
@@ -200,7 +203,7 @@
 	(progn  ;;else
 	  (setq m (vector (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) nt))
 	  (avl-tree-enter ss-data m)  )))
-    (ss-draw-cell ss-cur-col ss-cur-row (propertize (elt m 1) 'font-lock-face '(:inverse-video t))) ))
+    (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right (elt m 1) ss-cur-col) 'font-lock-face '(:inverse-video t))) ))
 
 (defun ss-set-function (fun)
   "Sets the function for current cell to value"
@@ -253,7 +256,7 @@
 
 
   (pop-to-buffer ss-empty-name nil)
-  (setq cursor-type nil)
+
   (setq ss-cur-col 0)
   (setq ss-max-col 3)
   (setq ss-col-widths (make-vector ss-max-col 7))
