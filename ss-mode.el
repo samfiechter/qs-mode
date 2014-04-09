@@ -10,7 +10,7 @@
 ;; Author: sam fiechter sam.fiechter(at)gmailxs
 ;; Version: 0.000000000000001
 ;; Created: 2014-03-24
-;; Keywords: calc, tabular 
+;; Keywords: calc, spreadsheet
 
 
 ;;;Code
@@ -32,13 +32,18 @@
 (defvar ss-empty-name "*Sams Spreadsheet Mode*")
 
 (defvar ss-cur-col 0)
-(defvar ss-max-col 10)
+(defvar ss-max-col 3)
 (defvar ss-col-widths (make-vector ss-max-col 7))
 
 (defvar ss-cur-row 1)
-(defvar ss-max-row 10)
+(defvar ss-max-row 3)
 (defvar ss-row-padding 4)
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
+
+;	AVL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" (list of cells to calc when changes)
+;
+
+
 
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -59,21 +64,22 @@
        
 (defun ss-to-index (a)
   "Convert from ss to index  -- requires [A-Z]+[0-9]+"
+  (let ((chra (- (string-to-char "A") 1)))
   (if (sequencep a)
       (progn 
 	(let ((out 0) (i 0))
-	  (while (and  (< i (length a)) (< 64 (elt a i)))
-	    (setq out (+ (* 26 out)  (- (logand -33 (elt a i)) 64)))
+	  (while (and  (< i (length a)) (< chra (elt a i)))
+	    (setq out (+ (* 26 out)  (- (logand -33 (elt a i)) chra))) ;; -33 is mask to change case
 	    (setq i (+ 1 i)))
 	  (setq out (+ (* out ss-max-row) (string-to-int (substring a i))))
 	  out))
-    a ))
+    a )))
 
 (defun ss-col-letter (a)
   "returns the letter of the column id arg"
-  (let ((out "") (n 1))
+  (let ((out "") (n 1) (chra (string-to-char "A")))
     (while (<= 0 a)
-      (setq out (concat (char-to-string (+ 65 (% a 26))) out))
+      (setq out (concat (char-to-string (+ chra (% a 26))) out))
       (setq a  (- (/ a 26) 1)) )
     out ))
 
@@ -98,9 +104,10 @@
 
 
 (defun ss-draw-all ()
-  "Populate the current ss buffer."
+  "Populate the current ss buffer." (interactive)
+  (pop-to-buffer ss-empty-name nil)
   (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
-    (debug)
+  
     (beginning-of-buffer)
     (erase-buffer)
     (dotimes (i ss-max-col)  ;; make header
@@ -113,24 +120,26 @@
 	  (dotimes (i ss-max-col)
 	    (let ((m (avl-tree-member ss-data (+ j (* ss-max-row (+ i 1))))))
 	      (if m
-		  (insert (ss-pad-right (number-to-string (elt m 1) i)))
+		  (insert (ss-pad-right (elt m 1) i))
 		(insert (make-string (elt ss-col-widths i) (string-to-char " "))))))))
-      (next-line) )
+
+      (insert "\n"))
     (set-buffer-modified-p nil)
-    (ss-move-cur-cell 0 0) )) ;;draw cursor
+    (ss-move-cur-cell 0 0))) ;;draw cursor
     
 
 (defun ss-draw-cell (x y text)
-"redraw one cell on the ss"
-  (let ((ovr   (overwrite-mode)) (col ss-row-padding) (i 0))
-    (if (> x 0) 
-	(dotimes (i (- x 1))
-	  (setq col (+ col (elt ss-col-widths i)))) nil )
-    (goto-line y) (move-to-column i)
-    (setq overwrite-mode overwrite-mode-binary )
+  "redraw one cell on the ss"
+  (let ((col ss-row-padding) (i 0))
+    (pop-to-buffer ss-empty-name nil)
+    (dotimes (i x)
+      (setq col (+ col (elt ss-col-widths i))) )
+    (goto-line (+ y 1))
+    (move-to-column col)
+    (message (format "Going to %d, %d" col (+ y 1)))
     (insert text)
-    (recenter)
-    (setq overwrite-mode ovr) ))
+    (delete-forward-char (length text))
+    (recenter) ))
 
 
 (defun ss-move-left ()
@@ -140,11 +149,13 @@
 
 (defun ss-move-right ()
   (interactive)
-  (if (< ss-cur-col ss-max-col)
+
+  (if (< ss-cur-col (- ss-max-col 1))
       (ss-move-cur-cell 1 0)
     (progn
       (setq ss-max-col (+ 1 ss-max-col))
-      (setq cur-col ss-max-col)
+      (setq ss-col-widths (vconcat ss-col-widths (elt ss-col-widths ss-cur-col)))
+      (setq ss-cur-col (+ 1 ss-cur-col))
       (ss-draw-all) )))
 
 (defun ss-move-up ()
@@ -152,59 +163,15 @@
   (if (> ss-cur-row 1)
       (ss-move-cur-cell 0 -1) nil ))
     
-
 (defun ss-move-down ()
   (interactive)
-  (if (< ss-cur-row ss-max-row)
-      (ss-move-cur-cell 0 1 ))
-  (progn
-    (setq ss-max-row (+ 1 ss-max-row))
-    (setq cur-row ss-max-row)
-    (ss-draw-all) ))
 
-
-
-;;;###autoload
-(define-derived-mode ss-mode text-mode ss-empty-name
-  "ss game mode
-  Keybindings:
-  \\{ss-map} "
-  (use-local-map ss-map)
- 
- ;; (unless (featurep 'emacs)
-  ;;   (setq mode-popup-menu
-  ;;         '("ss Commands"
-  ;;           ["Start new game"        ss-start-game]
-  ;;           ["End game"                ss-end-game
-  ;;            (ss-active-p)]
-  ;;           ))
-
-
-  (pop-to-buffer ss-empty-name nil)
-  (setq cursor-type nil)
-  (setq ss-cur-row 0)
-  (setq ss-cur-col 0)
-  (ss-move-cur-cell 0 0 ) )
-
-
-;;;###autoload
-(defun ss-mode-open ()
-  "Open SS mode
-     ss keybindings:
-     \\<ss-mode-map>
-\\[ss-start-game]        Start a new game
-\\[ss-end-game]        Terminate the current game
-\\[ss-move-left]        Moves the board to the left
-\\[ss-move-right]        Moves the board to the right
-\\[ss-move-up]        Moves the board to the up
-\\[ss-move-down]        Moves the board to the down
-"
-  (interactive)
-  (pop-to-buffer ss-empty-name nil)
-  (ss-mode) )
-
-
-
+  (if (< ss-cur-row (- ss-max-row 1))
+      (ss-move-cur-cell 0 1 )
+    (progn
+      (setq ss-max-row (+ 1 ss-max-row))
+      (setq ss-cur-row (+ 1 ss-cur-row))
+      (ss-draw-all) )))
 
 (defun ss-move-cur-cell (x y) (interactive)
   (let* ((new-row (+ ss-cur-row y))
@@ -213,11 +180,11 @@
 	 (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1))))) 
 	 (ot (if m (elt m 1) ""))
 	 (nt (if n (elt n 1) "")))
-  (progn
+    (progn
     (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
     (setq ss-cur-row new-row)
     (setq ss-cur-col new-col)
-    (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right (propertize nt 'font-lock-face '(:inverse-video t)) ss-cur-col)) )))
+    (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t))) )))
   
   
 
@@ -226,12 +193,12 @@
   (interactive)
   (let*  ( (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
 	   (ot (if m (elt m 1) ""))
-	   (nt (cell-value (read-string "Cell Value:" ot ))) )
-    (if (= 61 (elt cell-value 0)) ; new value starts with  =
+	   (nt (read-string "Cell Value:" ot )) )
+    (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
 	(nil) ;; add funciton
       (if m (aset m 1 nt)
 	(progn  ;;else
-	  (setq m [ (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) nt])
+	  (setq m (vector (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) nt))
 	  (avl-tree-enter ss-data m)  )))
     (ss-draw-cell ss-cur-col ss-cur-row (propertize (elt m 1) 'font-lock-face '(:inverse-video t))) ))
 
@@ -268,6 +235,51 @@
 ;; 	 ))) )
 
 
+
+;;;###autoload
+(define-derived-mode ss-mode text-mode ss-empty-name
+  "ss game mode
+  Keybindings:
+  \\{ss-map} "
+  (use-local-map ss-map)
+ 
+ ;; (unless (featurep 'emacs)
+  ;;   (setq mode-popup-menu
+  ;;         '("ss Commands"
+  ;;           ["Start new game"        ss-start-game]
+  ;;           ["End game"                ss-end-game
+  ;;            (ss-active-p)]
+  ;;           ))
+
+
+  (pop-to-buffer ss-empty-name nil)
+  (setq cursor-type nil)
+  (setq ss-cur-col 0)
+  (setq ss-max-col 3)
+  (setq ss-col-widths (make-vector ss-max-col 7))
+  (setq ss-cur-row 1)
+  (setq ss-max-row 3)
+  (setq ss-row-padding 4)
+  (setq ss-data (avl-tree-create 'ss-avl-cmp))
+
+  (ss-draw-all))
+
+
+;;;###autoload
+(defun ss-mode-open ()
+  "Open SS mode
+     ss keybindings:
+     \\<ss-mode-map>
+\\[ss-start-game]        Start a new game
+\\[ss-end-game]        Terminate the current game
+\\[ss-move-left]        Moves the board to the left
+\\[ss-move-right]        Moves the board to the right
+\\[ss-move-up]        Moves the board to the up
+\\[ss-move-down]        Moves the board to the down
+"
+  (interactive)
+  (pop-to-buffer ss-empty-name nil)
+  (ss-mode) )
 
 
 
