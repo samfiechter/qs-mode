@@ -40,10 +40,12 @@
 (defvar ss-row-padding 4)
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
 
-;	AVL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" (list of cells to calc when changes)
-;
-
-
+;	AVL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
+;   0 = index / cell 
+;   1 = value (number)
+;   2 = format (TBD)
+;   3 = formula
+;   4 = depends on -- list of indexes
 
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -198,20 +200,27 @@
 	   (ot (if m (elt m 1) ""))
 	   (nt (read-string "Cell Value:" ot )) )
     (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
-	(nil) ;; add funciton
+	(progn
+	(if m (aset m 4 nt)
+	  (setq m (vector (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) 0 0 nt))
+	  (avl-tree-enter ss-data m)  )
+	aset(m 1 (ss-eval-function 
+	 
+	  
       (if m (aset m 1 nt)
 	(progn  ;;else
 	  (setq m (vector (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) nt))
 	  (avl-tree-enter ss-data m)  )))
     (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right (elt m 1) ss-cur-col) 'font-lock-face '(:inverse-video t))) ))
+(defun get
 
-(defun ss-set-function (fun)
+  (defun ss-eval-function (fun)
   "Sets the function for current cell to value"
-  ;; (let* ((string "=A3* a4 ")
-  ;;     (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
-  ;;     )
-  ;; (string-match re string)
-  ;; (substring string (match-beginning 1)  (match-end 1)))
+  (let* ((re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
+	 (m 0)
+	 )
+  (string-match re string)
+  (substring string (match-beginning 1)  (match-end 1)))
 
   )
 
