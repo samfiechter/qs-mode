@@ -56,9 +56,13 @@
 (define-key ss-map [up]           'ss-move-up)
 (define-key ss-map [down]         'ss-move-down)
 (define-key ss-map (kbd "RET")        'ss-edit-cell)
+(define-key ss-map (kbd "+")  'ss-increase-cur-col )
+(define-key ss-map (kbd "-")  'ss-decrease-cur-col )
 
 ;; ;;;;;;;;;;;;; functions ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SAM's SES MACROS
+
+
 
 (defun ss-avl-cmp (a b)
   (let ((A (if (sequencep a) (elt a 0) a)) (B (if (sequencep b) (elt b 0) b)))  ; a or b can be vectors or addresses
@@ -87,29 +91,36 @@
 
 (defun ss-pad-center (s i)
   "pad a string out to center it"
-  (let* ( (ll (length s))
-	  (pl (/ (- (* 2 (elt ss-col-widths i)) ll)  2))  ; half the pad length
-	  (pad (make-string (- (elt ss-col-widths i) (+ pl ll)) (string-to-char " "))) )
-	(concat (make-string pl (string-to-char " ")) s pad) ))
+  (let ( (ll (length s) )) 	  
+    (if (>= ll (elt ss-col-widths i)) 
+	(make-string (elt ss-col-widths i) (string-to-char "#"))
+      (let* ( (pl (/ (- (* 2 (elt ss-col-widths i)) ll)  2))  ; half the pad length
+	      (pad (make-string (- (elt ss-col-widths i) (+ pl ll)) (string-to-char " "))) )
+	(concat (make-string pl (string-to-char " ")) s pad)) )
+	))
 
 (defun ss-pad-left (s i)
   "pad to the leftt"
-  (let ( (ll (length s))
-	 (pad (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ") )))
-	(concat s pad) ))
+  (let ( (ll (length s)) )
+    (if (>= ll (elt ss-col-widths i)) 
+	(make-string (elt ss-col-widths i) (string-to-char "#"))
+	(concat s (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")))
+	)))
 
 (defun ss-pad-right (s i)
   "pad to the right"
-  (let* ( (ll (length s))
-	  (pad (make-string (- (elt ss-col-widths i) ll) (string-to-char " ") )))
-	(concat pad s) ))
+  (let ( (ll (length s)) )
+    (if (>= ll (elt ss-col-widths i)) 
+	(make-string (elt ss-col-widths i) (string-to-char "#"))
+	(concat (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")) s)
+	)))
+
 
 
 (defun ss-draw-all ()
   "Populate the current ss buffer." (interactive)
   (pop-to-buffer ss-empty-name nil)
-  (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
-  
+  (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))  
     (beginning-of-buffer)
     (erase-buffer)
     (dotimes (i ss-max-col)  ;; make header
@@ -127,7 +138,8 @@
 
       (insert "\n"))
     (set-buffer-modified-p nil)
-    (ss-move-cur-cell 0 0))) ;;draw cursor
+    (ss-move-cur-cell 0 0) ;;draw cursor
+    )) 
     
 
 (defun ss-draw-cell (x y text)
@@ -143,14 +155,24 @@
     (message (format "Cell %s" (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))))
     (insert text)
     (delete-forward-char (length text))
+    (recenter) 
+    ))
 
-    (recenter) ))
+(defun ss-increase-cur-col ()
+"Increase the width of the current column" (interactive)
+(aset ss-col-widths ss-cur-col (+ 1 (elt ss-col-widths ss-cur-col)))
+(ss-draw-all))
 
+(defun ss-decrease-cur-col ()
+"Increase the width of the current column" (interactive)
+(aset ss-col-widths ss-cur-col (- (elt ss-col-widths ss-cur-col) 1))
+(ss-draw-all))
 
 (defun ss-move-left ()
   (interactive)
   (if (> ss-cur-col  0)
-      (ss-move-cur-cell -1 0) nil) )
+      (ss-move-cur-cell -1 0) nil) 
+  )
 
 (defun ss-move-right ()
   (interactive)
@@ -161,12 +183,14 @@
       (setq ss-max-col (+ 1 ss-max-col))
       (setq ss-col-widths   (vconcat ss-col-widths (list (elt ss-col-widths ss-cur-col))))
       (setq ss-cur-col (+ 1 ss-cur-col))
-      (ss-draw-all) )))
+      (ss-draw-all) 
+      )))
 
 (defun ss-move-up ()
   (interactive)
   (if (> ss-cur-row 1)
-      (ss-move-cur-cell 0 -1) nil ))
+      (ss-move-cur-cell 0 -1)
+    nil ))
     
 (defun ss-move-down ()
   (interactive)
@@ -175,7 +199,8 @@
     (progn
       (setq ss-max-row (+ 1 ss-max-row))
       (setq ss-cur-row (+ 1 ss-cur-row))
-      (ss-draw-all) )))
+      (ss-draw-all)
+      )))
 
 (defun ss-move-cur-cell (x y) (interactive)
   (let* ((new-row (+ ss-cur-row y))
@@ -188,12 +213,14 @@
     (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
     (setq ss-cur-row new-row)
     (setq ss-cur-col new-col)
-    (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t))) )))
+    (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t))) 
+    )))
   
 (defun ss-cell-val (addr)
   "get the value of a cell"
-  (let ((m avl-tree-member ss-data  addr))
-    (if m (elt m 1) 0)))
+  (let ((m (avl-tree-member ss-data  (ss-to-index addr))))
+    (if m (elt m 1) "0")
+    ))
 
 (defun ss-eval-chain (addr chain)
   "Updaet cell and all deps"
@@ -203,90 +230,114 @@
 	  (ss-eval-fun addr)
 	  (dolist (a (aref m 4))
 	    (if (member a chain) nil
-	      (ss-eval-chain a chain)))))))
+	      (ss-eval-chain a (append chain (list addr)))
+	      ))))))
+
+(defun ss-formula-cell-refs (formula)
+"Takes a string and finds all the cell references in a string Ex:
+   (ss-fomual-cell-refs (\"= A1+B1\"))
+   returns a list ((\"A1\" 2 3) (\"B1\" 5 6))"
+(let* ((s (concat formula " "))  
+       (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
+       (j nil) (retval (list )))
+  (if (string-match re s )
+      (progn
+	(while (not (equal j (match-end 1)))
+	  (setq retval (append retval (list (list (substring s (match-beginning 1) (match-end 1)) (match-beginning 1) (match-end 1)))))
+	  (setq j (match-end 1))
+	  (string-match re s j) )) nil )
+	retval))
+
 	  
 (defun ss-eval-fun (addr)
   "Sets the function for current cell to value"
   (let  ( (m (avl-tree-member ss-data addr))
-	   (s " ")
-	   (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
-	   (j nil) (cv "") (ca ""))
-    (setq s (concat (xlt m 3) " "))
-    (if (= (string-to-char "=") (elt s 0)) ; new value starts with  =
+	  (cv "") 
+	  (s (elt m 3))
+	  (refs (ss-formula-cell-refs s)) )
+    (if refs
 	(progn
-	  (if (string-match re s )
-	  (while (not (= (j (match-end 1))))
-	    (setq ca (substring s (match-beginning 1) (match-end 1)))
-	    (setq cv (ss-cell-val ca))
-	    (setq s (concat (substr s 0 (match-beginning 1)) cv (substr s (match-end 1))))
-	    (setq j (+ (match-end 1) (- (length cv) (length ca))))
-	    (string-match re s j)) nil)
-	  (setq cv (calc-eval s))
+	  (dolist (ref refs)
+	    (setq cv (ss-cell-val (elt ref 0)))
+	    (setq s (concat (substring s 0 (elt ref  1)) cv (substring s (elt ref 2)))))
+	  (setq cv (calc-eval (susbstring s 1)))
 	  (aset m 1 cv)
-	  cv ) 
-      (aref m 1) )))
+	  cv ) (aref m 1) 
+	  )))
     
 
 (defun ss-add-dep (ca cc)
   "Add to dep list."
-  (let  ( (m (avl-tree-member ss-data addr)))
-    (if m (aset m 4 (append (aref m 4) (list cc)))
+  (let  ( (m (avl-tree-member ss-data ca)))
+    (if m 
+	(aset m 4 (append (elt m 4) (list cc)))
       (progn
-	(setq m (vector ca 0 0 0 (list cc)))
-	(avl-tree-enter ss-data m) ))))
+	(setq m (vector ca "" "" "" (list cc)))
+	(avl-tree-enter ss-data m) 
+	))))
 
 (defun ss-del-dep (ca cc)
   "Remove from dep list."
-  (let  ( (m (avl-tree-member ss-data addr)))
-    (if m (delete cc (aref m 4)) nil)))
+  (let  ( (m (avl-tree-member ss-data ca)))
+    (if m 
+	(delete cc (aref m 4))
+      nil) ))
 
 (defun ss-edit-cell ()
   "edit the selected cell"
   (interactive)
-;  (debug)
+
   (let*  ( (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
 	   (ot (if m (elt m 1) ""))
 	   (nt (read-string "Cell Value:" ot ))
 	   (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))) )
-
     ;;delete this cell from its old deps
-    (if m (let* ((s (concat (aref m 4) " "))  
-		 (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
-		 (j nil) (cv "") (ca ""))
-	    (if (string-match re s )
-		(while (not (= j (match-end 1)))
-		  (setq ca (substring s (match-beginning 1) (match-end 1)))
-		  (ss-del-dep ca current-cell)
-		  (setq j (match-end 1))
-		  (string-match re s j) ) nil )) nil)
+    
+    (if m (let ((refs (ss-formula-cell-refs  (aref m 4))))
+    	    (dolist (ref refs)
+    	      (ss-del-dep (elt ref 1) current-cell)) 
+    	    ))
 
     ;; if this is a formula, do deps
     (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
 	(progn
-	  (if m (aset m 3 nt)
-	    (setq m (vector current-cell 0 0 nt (list)))
-	    (avl-tree-enter ss-data m))
-	  (let* ((s (concat nt " "))
-		 (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
-		 (j nil) (cv "") (ca ""))
-	    (if (string-match re s )
-	    (while (not (= j (match-end 1)))
-	      (setq ca (substring s (match-beginning 1) (match-end 1)))
-	      (setq cv (ss-cell-val ca))
-	      (ss-add-dep ca current-cell)
-	      (setq s (concat (substr s 0 (match-beginning 1)) cv (substr s (match-end 1))))
-	      (setq j (+ (match-end 1) (- (length cv) (length ca))))
-	      (string-match re s j) ) nil ) )
-	  (ss-eval-fun addr) )
+	  (if m 
+	      (aset m 3 nt)
+	    (progn
+	      (setq m (vector current-cell "0" "0" nt (list)))
+	      (avl-tree-enter ss-data m)
+	    ))
+	    
+	  (let*  ((cv "") (ca "") 
+		 (s (elt m 3))
+		 (delta 0)
+		 (refs (ss-formula-cell-refs s)) )
+	    (if refs
+		(progn
+		  (dolist (ref refs)
+		    (debug)
+		    (setq ca (elt ref 0))
+		    (ss-add-dep ca current-cell)
+		    (setq cv (ss-cell-val ca))
+		    (setq s (concat (substring s 0 (+ delta (elt ref  1))) cv (substring s (+ (elt ref 2) (+ delta (- (length cv) (length ca)))))))
+		    (setq delta (+ delta (- (length cv) (length ca))))
+		    )))
+
+		  (setq cv (calc-eval (substring s 1)))
+		  (aset m 1 cv) ))
       ;; if not a formula
       (if m (aset m 1 nt)  
 	(progn  ;;else
-	  (setq m (vector current-cell nt 0 0 (list)))
+	  (setq m (vector current-cell nt "0" "" (list)))
 	  (avl-tree-enter ss-data m)  )))
+
+    ;;do eval-chain
     (dolist (a (aref m 4))
-      (if (member a chain) nil
-	(ss-eval-chain a chain) ))
-    (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t))) ))
+      (if (not (equal a current-cell))  (ss-eval-chain a chain)  nil))
+
+    ;;draw it
+    (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
+    ))
 
 
 (defun ss-close () (interactive)
