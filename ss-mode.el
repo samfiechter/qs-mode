@@ -170,7 +170,6 @@
     
 (defun ss-move-down ()
   (interactive)
-
   (if (< ss-cur-row (- ss-max-row 1))
       (ss-move-cur-cell 0 1 )
     (progn
@@ -191,45 +190,112 @@
     (setq ss-cur-col new-col)
     (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t))) )))
   
-  
+(defun ss-cell-val (addr)
+  "get the value of a cell"
+  (let ((m avl-tree-member ss-data  addr))
+    (if m (elt m 1) 0)))
+
+(defun ss-eval-chain (addr chain)
+  "Updaet cell and all deps"
+  (let ((m (avl-tree-member ss-data addr)))
+    (if m
+	(progn
+	  (ss-eval-fun addr)
+	  (dolist (a (aref m 4))
+	    (if (member a chain) nil
+	      (ss-eval-chain a chain)))))))
+	  
+(defun ss-eval-fun (addr)
+  "Sets the function for current cell to value"
+  (let  ( (m (avl-tree-member ss-data addr))
+	   (s " ")
+	   (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
+	   (j nil) (cv "") (ca ""))
+    (setq s (concat (xlt m 3) " "))
+    (if (= (string-to-char "=") (elt s 0)) ; new value starts with  =
+	(progn
+	  (if (string-match re s )
+	  (while (not (= (j (match-end 1))))
+	    (setq ca (substring s (match-beginning 1) (match-end 1)))
+	    (setq cv (ss-cell-val ca))
+	    (setq s (concat (substr s 0 (match-beginning 1)) cv (substr s (match-end 1))))
+	    (setq j (+ (match-end 1) (- (length cv) (length ca))))
+	    (string-match re s j)) nil)
+	  (setq cv (calc-eval s))
+	  (aset m 1 cv)
+	  cv ) 
+      (aref m 1) )))
+    
+
+(defun ss-add-dep (ca cc)
+  "Add to dep list."
+  (let  ( (m (avl-tree-member ss-data addr)))
+    (if m (aset m 4 (append (aref m 4) (list cc)))
+      (progn
+	(setq m (vector ca 0 0 0 (list cc)))
+	(avl-tree-enter ss-data m) ))))
+
+(defun ss-del-dep (ca cc)
+  "Remove from dep list."
+  (let  ( (m (avl-tree-member ss-data addr)))
+    (if m (delete cc (aref m 4)) nil)))
 
 (defun ss-edit-cell ()
   "edit the selected cell"
   (interactive)
+;  (debug)
   (let*  ( (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
 	   (ot (if m (elt m 1) ""))
-	   (nt (read-string "Cell Value:" ot )) )
+	   (nt (read-string "Cell Value:" ot ))
+	   (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))) )
+
+    ;;delete this cell from its old deps
+    (if m (let* ((s (concat (aref m 4) " "))  
+		 (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
+		 (j nil) (cv "") (ca ""))
+	    (if (string-match re s )
+		(while (not (= j (match-end 1)))
+		  (setq ca (substring s (match-beginning 1) (match-end 1)))
+		  (ss-del-dep ca current-cell)
+		  (setq j (match-end 1))
+		  (string-match re s j) ) nil )) nil)
+
+    ;; if this is a formula, do deps
     (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
 	(progn
-	(if m (aset m 4 nt)
-	  (setq m (vector (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) 0 0 nt))
-	  (avl-tree-enter ss-data m)  )
-	aset(m 1 (ss-eval-function 
-	 
-	  
-      (if m (aset m 1 nt)
+	  (if m (aset m 3 nt)
+	    (setq m (vector current-cell 0 0 nt (list)))
+	    (avl-tree-enter ss-data m))
+	  (let* ((s (concat nt " "))
+		 (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
+		 (j nil) (cv "") (ca ""))
+	    (if (string-match re s )
+	    (while (not (= j (match-end 1)))
+	      (setq ca (substring s (match-beginning 1) (match-end 1)))
+	      (setq cv (ss-cell-val ca))
+	      (ss-add-dep ca current-cell)
+	      (setq s (concat (substr s 0 (match-beginning 1)) cv (substr s (match-end 1))))
+	      (setq j (+ (match-end 1) (- (length cv) (length ca))))
+	      (string-match re s j) ) nil ) )
+	  (ss-eval-fun addr) )
+      ;; if not a formula
+      (if m (aset m 1 nt)  
 	(progn  ;;else
-	  (setq m (vector (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) nt))
+	  (setq m (vector current-cell nt 0 0 (list)))
 	  (avl-tree-enter ss-data m)  )))
-    (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right (elt m 1) ss-cur-col) 'font-lock-face '(:inverse-video t))) ))
-(defun get
-
-  (defun ss-eval-function (fun)
-  "Sets the function for current cell to value"
-  (let* ((re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
-	 (m 0)
-	 )
-  (string-match re string)
-  (substring string (match-beginning 1)  (match-end 1)))
-
-  )
-
+    (dolist (a (aref m 4))
+      (if (member a chain) nil
+	(ss-eval-chain a chain) ))
+    (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t))) ))
 
 
 (defun ss-close () (interactive)
   (kill-buffer (current-buffer)) )
 
+(defun ss-input-loop () (interactive)
+;;(funcall (key-binding (kbd "M-TAB")))
 
+       )
 ;; (defun ss-import-csv (filename)
 ;;   "Read a CSV file into ss-mode"
 ;;   (interactive "f")
