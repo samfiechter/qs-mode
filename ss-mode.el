@@ -1,9 +1,10 @@
-                                        ;                                          _            _
-                                        ;        ___ ___       _ __ ___   ___   __| | ___   ___| |
-                                        ;       / __/ __|_____| '_ ` _ \ / _ \ / _` |/ _ \ / _ \ |
-                                        ;       \__ \__ \_____| | | | | | (_) | (_| |  __/|  __/ |
-                                        ;       |___/___/     |_| |_| |_|\___/ \__,_|\___(_)___|_|
-                                        ;
+;;                                          _            _
+;;        ___ ___       _ __ ___   ___   __| | ___   ___| |
+;;       / __/ __|_____| '_ ` _ \ / _ \ / _` |/ _ \ / _ \ |
+;;       \__ \__ \_____| | | | | | (_) | (_| |  __/|  __/ |
+;;       |___/___/     |_| |_| |_|\___/ \__,_|\___(_)___|_|
+
+
 
 ;;; ss-mode -- Spreadsheet Mode -- Tabular interface to Calc
 ;; Copyright (C) 2014 -- Use at 'yer own risk  -- NO WARRANTY!
@@ -47,12 +48,12 @@
 (defvar ss-c-fmla 3)
 (defvar ss-c-deps 4)
 
-                                        ;       AVL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
-                                        ;   0 = index / cell
-                                        ;   1 = value (number)
-                                        ;   2 = format (TBD)
-                                        ;   3 = formula
-                                        ;   4 = depends on -- list of indexes
+;;       AVL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
+;;   0 = index / cell
+;;   1 = value (number)
+;;   2 = format (TBD)
+;;   3 = formula
+;;   4 = depends on -- list of indexes
 
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -62,7 +63,7 @@
 (define-key ss-map [right]        'ss-move-right)
 (define-key ss-map [up]           'ss-move-up)
 (define-key ss-map [down]         'ss-move-down)
-(define-key ss-map (kbd "RET")        'ss-edit-cell)
+;(define-key ss-map (kbd "RET")        'ss-edit-cell)
 (define-key ss-map (kbd "+")  'ss-increase-cur-col )
 (define-key ss-map (kbd "-")  'ss-decrease-cur-col )
 
@@ -80,7 +81,7 @@
   (let ((chra (- (string-to-char "A") 1)))
     (if (sequencep a)
         (progn
-	  (let ((out 0) (i 0))
+          (let ((out 0) (i 0))
             (while (and  (< i (length a)) (< chra (elt a i)))
               (setq out (+ (* 26 out)  (- (logand -33 (elt a i)) chra))) ;; -33 is mask to change case
               (setq i (+ 1 i)))
@@ -159,7 +160,7 @@
       (setq col (+ col (elt ss-col-widths i))) )
     (goto-line (+ y 1))
     (move-to-column col)
-    (message (format "Cell %s" (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))))
+
     (insert text)
     (delete-forward-char (length text))
     (recenter)
@@ -259,9 +260,9 @@
 (defun ss-eval-fun (addr)
   "sets cell value based on its function; draws"
   (let*  ( (m (avl-tree-member ss-data (ss-to-index addr)))
-          (cv "")
-          (s (if m (elt m ss-c-fmla) ""))
-          (refs (ss-formula-cell-refs s)) )
+           (cv "")
+           (s (if m (elt m ss-c-fmla) ""))
+           (refs (ss-formula-cell-refs s)) )
     (if refs
         (progn
           (dolist (ref refs)
@@ -269,11 +270,11 @@
             (setq s (concat (substring s 0 (elt ref  1)) cv (substring s (elt ref 2)))))
           (setq cv (calc-eval (substring s 1)))
           (aset m ss-c-val cv)
-	  (let ((c 0) (i 0) (chra (- (string-to-char "A") 1)))
+          (let ((c 0) (i 0) (chra (- (string-to-char "A") 1)))
             (while (and  (< i (length addr)) (< chra (elt addr i)))
               (setq c (+ (* 26 c)  (- (logand -33 (elt addr i)) chra))) ;; -33 is mask to change case
               (setq i (+ 1 i)))
-	    (ss-draw-cell (- c 1) (string-to-int (substring addr i)) (ss-pad-right cv (- c 1))) )
+            (ss-draw-cell (- c 1) (string-to-int (substring addr i)) (ss-pad-right cv (- c 1))) )
           cv ) (aref m ss-c-val)
           )))
 
@@ -295,16 +296,16 @@
         (delete cc (aref m ss-c-deps))
       nil) ))
 
-(defun ss-edit-cell ()
+(defun ss-edit-cell ( &optional newval)
   "edit the selected cell"
   (interactive)
 
   (let*  ( (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)))
-;           (m (avl-tree-member ss-data (ss-to-index current-cell)))
-	   (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
+	   ;;(m (avl-tree-member ss-data (ss-to-index current-cell)))
+           (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
            (ot (if m (if (string= "" (elt m ss-c-fmla)) (elt m ss-c-val) (elt m ss-c-fmla)) "" ))
-           (nt (read-string "Cell Value:" ot ))  )
-
+           (nt (if newval (read-string "Cell Value:" ot ) newval)) )
+    
     ;;delete this cell from its old deps
 
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
@@ -349,18 +350,29 @@
 
     ;;draw it
     (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
-    
+
     )
-  (ss-move-down))
+  (if (match last-command ('ss-move-down 'ss-move-up 'ss-move-left 'ss-move-right))
+      (funcall last-command)
+    (ss-move-down)) )
+  
 
 
 (defun ss-close () (interactive)
        (kill-buffer (current-buffer)) )
 
-(defun ss-input-loop () (interactive)
-       ;;(funcall (key-binding (kbd "M-TAB")))
+(defun ss-input-loop () "proces input" (interactive)
+       ;; save last n inputs
+       (let ((buffer "") (key 0) (looping 1))
+	 (while looping 
+	   (setq key  (read-event (format "Cell %s : %s" (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) buffer)))
+	   (if (event-modifiers key) 
+	       (funcall (key-binding (vector key)))
+	     (if (sequencep key)
+		 (setq buffer (vconcat buffer (vector key)))
+	       (funcall (vector (key-binding key)))
+		   )))))
 
-       )
 ;; (defun ss-import-csv (filename)
 ;;   "Read a CSV file into ss-mode"
 ;;   (interactive "f")
@@ -410,7 +422,8 @@
   (setq ss-row-padding 4)
   (setq ss-data (avl-tree-create 'ss-avl-cmp))
 
-  (ss-draw-all))
+  (ss-draw-all)
+  (ss-input-loop))
 
 
 ;;;###autoload
