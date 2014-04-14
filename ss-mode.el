@@ -45,7 +45,7 @@
 (defvar ss-input-stack-idx 0)
 (defvar ss-input-buffer "")
 (defvar ss-input-cursor 0)
-
+(defvar ss-input-looping 1)
 
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
@@ -62,6 +62,7 @@
 
 (defvar ss-map  (make-sparse-keymap 'ss-map))
 
+
 (define-key ss-map [left]       'ss-left-key)
 (define-key ss-map [right]      'ss-right-key)
 (define-key ss-map [tab]        'ss-right-key)
@@ -69,11 +70,11 @@
 (define-key ss-map [down]       'ss-up-key)
 (define-key ss-map [return]     'ss-down-key)
 (define-key ss-map [backspace]  'ss-backspace-key)
+(define-key ss-map [\e]         'ss-clear-key)
 ;;(define-key ss-map [C-R]        'ss-search-buffer)
                                         ;(define-key ss-map (kbd "RET")        'ss-edit-cell)
 (define-key ss-map (kbd "+")  'ss-increase-cur-col )
 (define-key ss-map (kbd "-")  'ss-decrease-cur-col )
-
 
 ;;  _   _                 ___       _             __
 ;; | | | |___  ___ _ __  |_ _|_ __ | |_ ___ _ __ / _| __ _  ___ ___
@@ -82,28 +83,26 @@
 ;;  \___/|___/\___|_|    |___|_| |_|\__\___|_|  |_|  \__,_|\___\___|
 
 
-(defun ss-left-key () (interactive)
-  (if (string= "" ss-input-buffer)
-      (ss-move-left)
-    (ss-input-cursor-move -1) ))
 
+(defun ss-left-key () (interactive)
+       (if (string= "" ss-input-buffer)
+           (ss-move-left)
+         (ss-input-cursor-move -1) ))
 
 (defun ss-right-key () (interactive)
-  (if (string= "" ss-input-buffer)
-      (ss-move-right)
-    (ss-input-cursor-move 1) ))
-
+       (if (string= "" ss-input-buffer)
+           (ss-move-right)
+         (ss-input-cursor-move 1) ))
 
 (defun ss-up-key () (interactive)
-  (if (string= "" ss-input-buffer)
-      (ss-move-up)
-    (ss-buffer-rot -1)))
-
+       (if (string= "" ss-input-buffer)
+           (ss-move-up)
+         (ss-buffer-rot -1)))
 
 (defun ss-down-key () (interactive)
-  (if (string= "" ss-input-buffer)
-      (ss-move-down)
-    (ss-buffer-rot -1)))
+       (if (string= "" ss-input-buffer)
+           (ss-move-down)
+         (ss-buffer-rot -1)))
 
 (defun ss-increase-cur-col ()
   "Increase the width of the current column" (interactive)
@@ -115,24 +114,71 @@
   (aset ss-col-widths ss-cur-col (- (elt ss-col-widths ss-cur-col) 1))
   (ss-draw-all))
 
-(defun ss-buffer-rot (dir) "Rotate the Command Buffer"
+
+(defun ss-input-cursor-move (dir)
+  "Move the cursor" (interactive)
+  (if (and (> 0 ss-input-cursor) (< ss-input-cursor (- (length ss-input-buffer) 1)))
+      (setq ss-input-cursor (+ ss-input-cursor dir))
+    nil
+    ))
+
+(defun ss-buffer-rot (dir)
+  "Rotate the Command Buffer"
+  (message "do buffer rot")
   )
 
-(defun ss-backspace-key () "Delete from buffer"
-  )
+(defun ss-backspace-key ()
+  "Delete from buffer"  (interactive)
+  (if (and (> 0 (length ss-input-buffer)) (0 > ss-input-cursor))
+      (let ((nc (- ss-input-cursor -1)))  ;; 01234
+        (setq ss-input-buffer (concat (substring ss-input-buffer 0 nc) (substring ss-input-cursor (+ 1 ss-input-cursor))))
+        (setq ss-input-cursor nc)
+        )))
+
+(defun ss-clear-key ()
+  "ESC clears the input buffer" (interactive)
+  (setq ss-input-buffer "")
+  (setq ss-input-cursor 0))
 
 
-(defun ss-input-loop () "proces input" (interactive)
-  ;; save last n inputs
-  (let ((buffer "") (key 0) (looping 1))
-    (while looping
-      (setq key  (read-event (format "Cell %s : %s" (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)) buffer)))
-      (if (event-modifiers key)
-          (funcall (key-binding (vector key)))
-        (if (match key (list left right up down ))
-            (funcall (vector (key-binding key)))
-          (setq buffer (vconcat buffer (vector key))))
-        ))))
+
+
+(defun ss-input-loop ()
+  "process keyboard input" (interactive)
+  (let ((key 0) (bstr "" ) )
+    (while (= 1 ss-input-looping)
+;;draw line and cursor
+      (if (= ss-input-cursor (length ss-input-buffer))
+          (setq bstr (concat ss-input-buffer (propertize  " " 'font-lock-face '(:inverse-video t))))
+        (if (= 0 ss-input-cursor)
+            (setq bstr (concat  (propertize (substring ss-input-buffer 0 1) 'font-lock-face '(:inverse-video t)) (substring ss-input-buffer 1)))
+          (setq bstr (concat (substring ss-input-buffer 0 (- ss-input-cursor 1))
+                             (propertize (substring ss-input-buffer ss-input-cursor (+ 1 ss-input-cursor)) 'font-lock-face '(:inverse-video t))
+                             (substring ss-input-cursor (+ 1 ss-input-cursor))))
+          )
+      (setq key (read-key "bork"));;(concat "Cell "  (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) ": " bstr ) ))
+      ))
+      ;;      (debug)
+      (if (assoc key (cdr ss-map))   ;;defined keys get called...
+	  (funcall (cdr (assoc key (cdr ss-map)))
+	(if (event-modifiers key)
+	    (let ((kb (key-binding (vector key))))
+	      (setq case-fold-search t)
+	      (while (string-match "prefix" (symbol-name  kb))
+		(setq key (vconcat key (vector (read-key (symbol-name kb)))))
+		(setq kb (key-binding (vector key))))
+	      (funcall kb) )
+          (progn
+	    (if (= (length ss-input-buffer) ss-input-cursor)
+		(setq ss-input-buffer (concat ss-input-buffer (vector key)))
+	      (if (= 0 ss-input-cursor)
+		  (setq ss-input-buffer (concat (vector key)  ss-input-buffer ))
+		(setq ss-input-buffer (concat (substring ss-input-buffer 0 ss-input-cursor) (vector key)
+					      (substring ss-input-buffer ss-input-cursor))))))
+	  (setq ss-input-cursor (+ 1 ss-input-cursor))
+          )))
+    (ss-close)
+    ))
 
 
 ;;  ____        _          _____
@@ -183,6 +229,8 @@
 ;; |____/|_|  \__,_| \_/\_/ |_|_| |_|\__, |
 ;;                                   |___/
 ;; functions dealing with the cursor and cell drawing /padding
+
+
 
 (defun ss-pad-center (s i)
   "pad a string out to center it - expects stirng, col no (int)"
@@ -290,18 +338,18 @@
       )))
 
 (defun ss-move-cur-cell (x y) (interactive)
-  (let* ((new-row (+ ss-cur-row y))
-         (new-col (+ ss-cur-col x))
-         (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
-         (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
-         (ot (if m (elt m ss-c-val) ""))
-         (nt (if n (elt n ss-c-val) "")))
-    (progn
-      (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
-      (setq ss-cur-row new-row)
-      (setq ss-cur-col new-col)
-      (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
-      )))
+       (let* ((new-row (+ ss-cur-row y))
+              (new-col (+ ss-cur-col x))
+              (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
+              (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
+              (ot (if m (elt m ss-c-val) ""))
+              (nt (if n (elt n ss-c-val) "")))
+         (progn
+           (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
+           (setq ss-cur-row new-row)
+           (setq ss-cur-col new-col)
+           (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
+           )))
 
 ;;   ____     _ _   _____            _             _   _
 ;;  / ___|___| | | | ____|_   ____ _| |_   _  __ _| |_(_) ___  _ __
@@ -439,14 +487,14 @@
     (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
 
     )
-  (if (match last-command ('ss-down-key 'ss-up-key 'ss-left-key 'ss-right-key))
+  (if (member last-command ('ss-down-key 'ss-up-key 'ss-left-key 'ss-right-key))
       (funcall last-command)
     (ss-move-down)
     ) )
 
 
 (defun ss-close () (interactive)
-  (kill-buffer (current-buffer)) )
+       (kill-buffer (current-buffer)) )
 
 ;; (defun ss-import-csv (filename)
 ;;   "Read a CSV file into ss-mode"
