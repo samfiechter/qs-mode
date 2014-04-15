@@ -18,17 +18,21 @@
 (require 'avl-tree)
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defface ss-highlight-face   '((((class grayscale) (background light))
-                                (:background "Black" :foreground "White" :bold t))
-                               (((class grayscale) (background dark))
-                                (:background "white" :foreground "black" :bold t))
-                               (((class color) (background light))
-                                (:background "Blue" :foreground "White" :bold t))
-                               (((class color) (background dark))
-                                (:background "White" :foreground "Blue" :bold t))
-                               (t (:inverse-video t :bold t)))
-  "ss- face used to highlight cells"
-  :group 'ss-)
+(defface ss-face
+  '((((class color) (background dark)) (:foreground "green"))
+    (((class color) (background light)) (:foreground "#0039A1"))
+    (t (:bold t)))
+  "Font Lock mode face used to highlight special keywords."
+  :group 'font-lock-highlighting-faces)
+
+(defface ss-highlight-face
+  '(
+    (default (:bold t))
+;;  (((class color) (background dark)) (:foreground "Blue") (:background "White"))
+    (((class color) (background light)) (:foreground "White") (:background "Blue"))
+    (t (:inverse-video t)))
+  "Font Lock mode face used to highlight."
+  :group 'font-lock-highlighting-faces)
 
 (defvar ss-empty-name "*Sams Spreadsheet Mode*")
 
@@ -145,18 +149,16 @@
   (let ((key 0) (bstr "" ) )
     (while (= 1 ss-input-looping)
       ;;draw line and cursor
-      (debug)
-      (if (= 0 ss-input-cursor)
-	  (setq bstr (concat  (highlight (substring ss-input-buffer 0 1))  (substring ss-input-buffer 1)))
-	(setq bstr (concat (substring ss-input-buffer 0 (- ss-input-cursor 1))
-			   (if (= ss-input-cursor (length ss-input-buffer))
-			       (concat ss-input-buffer (highlight " "))
-			     (concat (highlight (substring ss-input-buffer ss-input-cursor (+ 1 ss-input-cursor)) )
-				     (substring ss-input-cursor (+ 1 ss-input-cursor)))
-			     ))))
+      (if (= ss-input-cursor (length ss-input-buffer))
+	  (setq bstr (concat ss-input-buffer (ss-highlight " ")))
+	(if (= 0 ss-input-cursor)	 
+	    (setq bstr (concat  (ss-highlight (substring ss-input-buffer 0 1))  (substring ss-input-buffer 1)))
+	  (setq bstr (concat (substring ss-input-buffer 0 (- ss-input-cursor 1))
+			     (ss-highlight (substring ss-input-buffer ss-input-cursor (+ 1 ss-input-cursor)) )
+			     (substring ss-input-cursor (+ 1 ss-input-cursor)) ))
+	  ))   
       (setq key (read-key (concat "Cell "  (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) ": " bstr ) ))
       
-      ;;      (debug)
       (if (assoc key (cdr ss-map))   ;;defined keys get called...
 	  (funcall (cdr (assoc key (cdr ss-map))))
 	(if (event-modifiers key)
@@ -165,13 +167,14 @@
 		(setq key (vconcat key (vector (read-key (symbol-name kb)))))
 		(setq kb (key-binding (vector key))))
 	      (funcall kb) )
+
 	  (if (= 0 ss-input-cursor)
 	      (setq ss-input-buffer (concat (vector key)  ss-input-buffer ))
 	    (setq ss-input-buffer (concat (substring ss-input-buffer 0 ss-input-cursor) 
 					  (if (= (length ss-input-buffer) ss-input-cursor)
 					      (vector key)
 					    (concat (vector key)  (substring ss-input-buffer ss-input-cursor)))))
-	    (setq ss-input-cursor (+ 1 ss-input-cursor))
+      	    (setq ss-input-cursor (+ 1 ss-input-cursor))
 	    ))))
     (ss-close)
     ))
@@ -226,10 +229,10 @@
 ;;                                   |___/
 ;; functions dealing with the cursor and cell drawing /padding
 
-(defun highlight (txt)
+(defun ss-highlight (txt)
   "highlight text"
-  ;;(propertize t 'font-lock-face '(:inverse-video t)))
-  (concat ">" txt "<"))
+  (propertize txt 'font-lock-face 'ss-face))
+;;  (concat ">" txt "<"))
 
 (defun ss-pad-center (s i)
   "pad a string out to center it - expects stirng, col no (int)"
@@ -269,9 +272,9 @@
       (setq header (concat header (ss-pad-center (ss-col-letter i) i))))
     (dotimes (j ss-max-row) ;; draw buffer
       (if (= 0 j)
-          (insert  (propertize header 'font-lock-face '(:inverse-video t)))
+          (insert  (ss-highlight header))
         (progn
-          (insert (propertize (format (concat "%" (int-to-string ss-row-padding) "d") j) 'font-lock-face '(:inverse-video t)))
+          (insert (ss-highlight (format (concat "%" (int-to-string ss-row-padding) "d") j) ))
           (dotimes (i ss-max-col)
             (let ((m (avl-tree-member ss-data (+ j (* ss-max-row (+ i 1))))))
               (if m
@@ -347,7 +350,7 @@
            (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
            (setq ss-cur-row new-row)
            (setq ss-cur-col new-col)
-           (ss-draw-cell ss-cur-col ss-cur-row  (propertize  (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
+           (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
            )))
 
 ;;   ____     _ _   _____            _             _   _
@@ -483,7 +486,7 @@
       (if (not (equal a current-cell))  (ss-eval-chain a current-cell)  nil))
 
     ;;draw it
-    (ss-draw-cell ss-cur-col ss-cur-row (propertize (ss-pad-right nt ss-cur-col) 'font-lock-face '(:inverse-video t)))
+    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
 
     )
   (if (member last-command ('ss-down-key 'ss-up-key 'ss-left-key 'ss-right-key))
@@ -544,6 +547,16 @@
   (setq ss-row-padding 4)
   (setq ss-data (avl-tree-create 'ss-avl-cmp))
 
+  
+  (setq ss-input-stack (list))
+  (setq ss-input-stack-idx 0)
+  (setq ss-input-buffer "")
+  (setq ss-input-cursor 0)
+  (setq ss-input-looping 1)
+
+
+
+  
   (ss-draw-all)
   (ss-input-loop))
 
