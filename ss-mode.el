@@ -117,7 +117,7 @@
 
 (defun ss-input-cursor-move (dir)
   "Move the cursor" (interactive)
-  (if (and (> 0 ss-input-cursor) (< ss-input-cursor (- (length ss-input-buffer) 1)))
+  (if (and (>= 0 (+ dir ss-input-cursor)) (<= (+ ss-input-cursor dir) (length ss-input-buffer)))
       (setq ss-input-cursor (+ ss-input-cursor dir))
     nil
     ))
@@ -140,43 +140,39 @@
   (setq ss-input-buffer "")
   (setq ss-input-cursor 0))
 
-
-
-
 (defun ss-input-loop ()
   "process keyboard input" (interactive)
   (let ((key 0) (bstr "" ) )
     (while (= 1 ss-input-looping)
-;;draw line and cursor
-      (if (= ss-input-cursor (length ss-input-buffer))
-          (setq bstr (concat ss-input-buffer (propertize  " " 'font-lock-face '(:inverse-video t))))
-        (if (= 0 ss-input-cursor)
-            (setq bstr (concat  (propertize (substring ss-input-buffer 0 1) 'font-lock-face '(:inverse-video t)) (substring ss-input-buffer 1)))
-          (setq bstr (concat (substring ss-input-buffer 0 (- ss-input-cursor 1))
-                             (propertize (substring ss-input-buffer ss-input-cursor (+ 1 ss-input-cursor)) 'font-lock-face '(:inverse-video t))
-                             (substring ss-input-cursor (+ 1 ss-input-cursor))))
-          )
-      (setq key (read-key "bork"));;(concat "Cell "  (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) ": " bstr ) ))
-      ))
+      ;;draw line and cursor
+      (debug)
+      (if (= 0 ss-input-cursor)
+	  (setq bstr (concat  (highlight (substring ss-input-buffer 0 1))  (substring ss-input-buffer 1)))
+	(setq bstr (concat (substring ss-input-buffer 0 (- ss-input-cursor 1))
+			   (if (= ss-input-cursor (length ss-input-buffer))
+			       (concat ss-input-buffer (highlight " "))
+			     (concat (highlight (substring ss-input-buffer ss-input-cursor (+ 1 ss-input-cursor)) )
+				     (substring ss-input-cursor (+ 1 ss-input-cursor)))
+			     ))))
+      (setq key (read-key (concat "Cell "  (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) ": " bstr ) ))
+      
       ;;      (debug)
       (if (assoc key (cdr ss-map))   ;;defined keys get called...
-	  (funcall (cdr (assoc key (cdr ss-map)))
+	  (funcall (cdr (assoc key (cdr ss-map))))
 	(if (event-modifiers key)
 	    (let ((kb (key-binding (vector key))))
-	      (setq case-fold-search t)
 	      (while (string-match "prefix" (symbol-name  kb))
 		(setq key (vconcat key (vector (read-key (symbol-name kb)))))
 		(setq kb (key-binding (vector key))))
 	      (funcall kb) )
-          (progn
-	    (if (= (length ss-input-buffer) ss-input-cursor)
-		(setq ss-input-buffer (concat ss-input-buffer (vector key)))
-	      (if (= 0 ss-input-cursor)
-		  (setq ss-input-buffer (concat (vector key)  ss-input-buffer ))
-		(setq ss-input-buffer (concat (substring ss-input-buffer 0 ss-input-cursor) (vector key)
-					      (substring ss-input-buffer ss-input-cursor))))))
-	  (setq ss-input-cursor (+ 1 ss-input-cursor))
-          )))
+	  (if (= 0 ss-input-cursor)
+	      (setq ss-input-buffer (concat (vector key)  ss-input-buffer ))
+	    (setq ss-input-buffer (concat (substring ss-input-buffer 0 ss-input-cursor) 
+					  (if (= (length ss-input-buffer) ss-input-cursor)
+					      (vector key)
+					    (concat (vector key)  (substring ss-input-buffer ss-input-cursor)))))
+	    (setq ss-input-cursor (+ 1 ss-input-cursor))
+	    ))))
     (ss-close)
     ))
 
@@ -230,7 +226,10 @@
 ;;                                   |___/
 ;; functions dealing with the cursor and cell drawing /padding
 
-
+(defun highlight (txt)
+  "highlight text"
+  ;;(propertize t 'font-lock-face '(:inverse-video t)))
+  (concat ">" txt "<"))
 
 (defun ss-pad-center (s i)
   "pad a string out to center it - expects stirng, col no (int)"
