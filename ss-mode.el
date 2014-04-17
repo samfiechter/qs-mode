@@ -28,13 +28,7 @@
 (defvar ss-max-row 3)
 (defvar ss-row-padding 4)
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
-
-(defvar ss-input-stack (list))
-(defvar ss-input-stack-idx 0)
-(defvar ss-input-buffer "")
-(defvar ss-input-cursor 0)
-(defvar ss-input-looping 1)
-
+(defvar ss-input-history (list ))
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
 (defvar ss-c-addr 0)
@@ -51,21 +45,15 @@
 (defvar ss-map  (make-sparse-keymap 'ss-map))
 
 
-(define-key ss-map [left]       'ss-left-key)
-(define-key ss-map [right]      'ss-right-key)
-(define-key ss-map [tab]        'ss-right-key)
+(define-key ss-map [left]       'ss-move-left)
+(define-key ss-map [right]      'ss-move-right)
+(define-key ss-map [tab]        'ss-move-right)
 (define-key ss-map [up]         'ss-move-up)
-(define-key ss-map [down]       'ss-up-key)
+(define-key ss-map [down]       'ss-move-down)
 (define-key ss-map [return]     'ss-edit-cell)
-(define-key ss-map [backspace]  'ss-backspace-key)
-(define-key ss-map [27]         'ss-clear-key)
-(define-key ss-map [17 ]         'ss-quit-key)
-(dotimes(i 26)
-  (define-key ss-map [(+ (string-to-char "A") i)] 'ss-edit-cell)
-  (define-key ss-map [(+ (string-to-char "a") i)] 'ss-edit-cell)
-  )
-(dotimes (i 10)
-  (define-key ss-map [(+ (string-to-char "0") i)] 'ss-edit-cell) )
+(define-key ss-map [backspace]  'ss-clear-key)
+(define-key ss-map [remap self-insert-command] 'ss-edit-cell)
+
 
 ;;(define-key ss-map [C-R]        'ss-search-buffer)
                                         ;(define-key ss-map (kbd "RET")        'ss-edit-cell)
@@ -80,25 +68,6 @@
 
 
 
-(defun ss-left-key () (interactive)
-       (if (string= "" ss-input-buffer)
-           (ss-move-left)
-         (ss-input-cursor-move -1) ))
-
-(defun ss-right-key () (interactive)
-       (if (string= "" ss-input-buffer)
-           (ss-move-right)
-         (ss-input-cursor-move 1) ))
-
-(defun ss-up-key () (interactive)
-       (if (string= "" ss-input-buffer)
-           (ss-move-up)
-         (ss-buffer-rot -1)))
-
-(defun ss-down-key () (interactive)
-       (if (string= "" ss-input-buffer)
-           (ss-move-down)
-         (ss-buffer-rot -1)))
 
 (defun ss-increase-cur-col ()
   "Increase the width of the current column" (interactive)
@@ -130,51 +99,6 @@
         (setq ss-input-buffer (concat (substring ss-input-buffer 0 nc) (substring ss-input-cursor (+ 1 ss-input-cursor))))
         (setq ss-input-cursor nc)
         )))
-
-(defun ss-quit-key ()
-  "ESC clears the input buffer" (interactive)
-  (setq ss-input-looping nil))
-
-(defun ss-clear-key ()
-  "ESC clears the input buffer" (interactive)
-  (setq ss-input-buffer "")
-  (setq ss-input-cursor 0))
-
-(defun ss-input-loop ()
-  "process keyboard input" (interactive)
-  (let ((key 0) (bstr "" ) )
-    (while (= 1 ss-input-looping)
-      ;;draw line and cursor
-      (if (= ss-input-cursor (length ss-input-buffer))
-	  (setq bstr (concat ss-input-buffer (ss-highlight " ")))
-	(if (= 0 ss-input-cursor)	 
-	    (setq bstr (concat  (ss-highlight (substring ss-input-buffer 0 1))  (substring ss-input-buffer 1)))
-	  (setq bstr (concat (substring ss-input-buffer 0 (- ss-input-cursor 1))
-			     (ss-highlight (substring ss-input-buffer ss-input-cursor (+ 1 ss-input-cursor)) )
-			     (substring ss-input-cursor (+ 1 ss-input-cursor)) ))
-	  ))   
-      (setq key (read-key (concat "Cell "  (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) ": " bstr ) ))
-      (debug)
-      (if (assoc key (cdr ss-map))   ;;defined keys get called...
-	  (funcall (cdr (assoc key (cdr ss-map))))
-	(if (event-modifiers key)
-	    (let ((kb (key-binding (vector key))))
-	      (while (string-match "prefix" (symbol-name (vector kb))
-		(setq key (vconcat key (vector (read-key (symbol-name kb)))))
-		(setq kb (key-binding (vector key))))
-	      (funcall kb) )
-
-	  (if (= 0 ss-input-cursor)
-	      (setq ss-input-buffer (concat (vector key)  ss-input-buffer ))
-	    (setq ss-input-buffer (concat (substring ss-input-buffer 0 ss-input-cursor) 
-					  (if (= (length ss-input-buffer) ss-input-cursor)
-					      (vector key)
-					    (concat (vector key)  (substring ss-input-buffer ss-input-cursor)))))
-      	    (setq ss-input-cursor (+ 1 ss-input-cursor))
-	    ))))
-    (ss-close)
-    ))
-
 
 ;;  ____        _          _____
 ;; |  _ \  __ _| |_ __ _  |  ___|   _ _ __  ___
@@ -227,7 +151,7 @@
 
 (defun ss-highlight (txt)
   "highlight text"
-  (let ((myface '((:bold t) (:foreground "Blue") (:background "White") (:invert t))))
+  (let ((myface '((:bold t) (:foreground "White") (:background "Blue") (:invert t))))
   (propertize txt 'font-lock-face myface)))
 ;;  (concat ">" txt "<"))
 
@@ -347,8 +271,11 @@
            (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
            (setq ss-cur-row new-row)
            (setq ss-cur-col new-col)
+
            (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
-           )))
+	   (message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
+	   )))
+
 
 ;;   ____     _ _   _____            _             _   _
 ;;  / ___|___| | | | ____|_   ____ _| |_   _  __ _| |_(_) ___  _ __
@@ -430,16 +357,18 @@
         (delete cc (aref m ss-c-deps))
       nil) ))
 
-(defun ss-edit-cell ( &optional newval)
+(defun ss-edit-cell ( )
   "edit the selected cell"
   (interactive)
 
-  (let*  ( (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)))
-           ;;(m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
-           (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
+  (let*  (  (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)))
+	    (prompt (concat "Cell " current-cell ": "))
+           (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
            (ot (if m (if (string= "" (elt m ss-c-fmla)) (elt m ss-c-val) (elt m ss-c-fmla)) "" ))
-           (nt (if newval (read-string "Cell Value:" ot ) newval)) )
-
+           (nt 1) )
+    (setq nt (if (equal 'return last-input-event)
+		 (read-string prompt ot  ss-input-history )
+	       (read-string prompt (char-to-string last-input-event)  ss-input-history )))
     ;;delete this cell from its old deps
 
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
@@ -484,12 +413,9 @@
 
     ;;draw it
     (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
-
     )
-  (if (member last-command ('ss-down-key 'ss-up-key 'ss-left-key 'ss-right-key))
-      (funcall last-command)
     (ss-move-down)
-    ) )
+    )
 
 
 (defun ss-close () (interactive)
@@ -549,15 +475,14 @@
   (setq ss-input-stack-idx 0)
   (setq ss-input-buffer "")
   (setq ss-input-cursor 0)
-  (setq ss-input-looping 1)
+
 
 
 
   
   (ss-draw-all)
-  (ss-input-loop)
-  )
 
+)
 
 ;;;###autoload
 (defun ss-mode-open ()
