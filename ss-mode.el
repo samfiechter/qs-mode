@@ -122,6 +122,32 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (setq a  (- (/ a 26) 1)) )
     out ))
 
+
+(defun ss-import-csv (filename)
+  "Read a CSV file into ss-mode"
+  (interactive "fFilename:")
+ 
+;;  (find-file (concat filename ".csv"))
+  (let ((rw 0) (cl 0))
+  (with-temp-buffer
+   (insert-file-contents filename)
+     (beginning-of-buffer)
+     (while (not (eobp))
+       (let ((x 0) (cell "") (row [])
+          (line (thing-at-point 'line)))
+      (dolist (cell (split-string line ","))
+        (if (and (char-equal "\"" (substring cell 0 0))
+                 (char-equal "\"" (substring cell -1 -1)))
+            (setq cell (substring cell 1 -1)) nil )
+        (setq row (vconcat row (list  cell))) )
+      (setq ss-mode-data (vconcat ss-mode-data row))
+      (with-current-buffer (ses-goto-print (x+1) 0))
+      (setq rw (+ rw 1))
+      (setq cl (0))
+      (next-line)
+      ))) ))
+
+
 ;;  ____                     _
 ;; |  _ \ _ __ __ ___      _(_)_ __   __ _
 ;; | | | | '__/ _` \ \ /\ / / | '_ \ / _` |
@@ -360,8 +386,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (setq nt (if (equal 'return last-input-event)
 		 (read-string prompt ot  ss-input-history )
 	       (read-string prompt (char-to-string last-input-event)  ss-input-history )))
-    ;;delete this cell from its old deps
 
+    (ss-update-cell current-cell nt)))
+
+(defun ss-update-cell (current-cell nt)
+  "Update the value/formula  of current cell to nt"
+  (let  ( (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
+	   )
+  
+    ;;delete this cell from its old deps
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
             (dolist (ref refs)
               (ss-del-dep (elt ref 1) current-cell))
@@ -412,26 +445,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-close () (interactive)
        (kill-buffer (current-buffer)) )
 
-;; (defun ss-import-csv (filename)
-;;   "Read a CSV file into ss-mode"
-;;   (interactive "f")
-;;   (find-file (concat filename ".ses"))
-;;   (setq ss-mode-data [ ])
-;;   (with-temp-buffer
-;;    (insert-file-contents filename)
-;;      (beginning-of-buffer)
-;;      (while (not (eobp))
-;;        (let ((x 0) (cell "") (row [])
-;;           (line (thing-at-point 'line)))
-;;       (dolist (cell (split-string line ","))
-;;         (if (and (char-equal "\"" (substring cell 0 0))
-;;                  (char-equal "\"" (substring cell -1 -1)))
-;;             (setq cell (substring cell 1 -1)) nil )
-;;         (setq row (vconcat row (list  cell))) )
-;;       (setq ss-mode-data (vconcat ss-mode-data row))
-;;       (with-current-buffer (ses-goto-print (x+1) 0))
-;;       (next-line)
-;;       ))) )
 
 
 
