@@ -18,22 +18,6 @@
 (require 'avl-tree)
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defface ss-face
-  '((((class color) (background dark)) (:foreground "green"))
-    (((class color) (background light)) (:foreground "#0039A1"))
-    (t (:bold t)))
-  "Font Lock mode face used to highlight special keywords."
-  :group 'font-lock-highlighting-faces)
-
-(defface ss-highlight-face
-  '(
-    (default (:bold t))
-;;  (((class color) (background dark)) (:foreground "Blue") (:background "White"))
-    (((class color) (background light)) (:foreground "White") (:background "Blue"))
-    (t (:inverse-video t)))
-  "Font Lock mode face used to highlight."
-  :group 'font-lock-highlighting-faces)
-
 (defvar ss-empty-name "*Sams Spreadsheet Mode*")
 
 (defvar ss-cur-col 0)
@@ -72,9 +56,17 @@
 (define-key ss-map [tab]        'ss-right-key)
 (define-key ss-map [up]         'ss-move-up)
 (define-key ss-map [down]       'ss-up-key)
-(define-key ss-map [return]     'ss-down-key)
+(define-key ss-map [return]     'ss-edit-cell)
 (define-key ss-map [backspace]  'ss-backspace-key)
-(define-key ss-map [\e]         'ss-clear-key)
+(define-key ss-map [27]         'ss-clear-key)
+(define-key ss-map [17 ]         'ss-quit-key)
+(dotimes(i 26)
+  (define-key ss-map [(+ (string-to-char "A") i)] 'ss-edit-cell)
+  (define-key ss-map [(+ (string-to-char "a") i)] 'ss-edit-cell)
+  )
+(dotimes (i 10)
+  (define-key ss-map [(+ (string-to-char "0") i)] 'ss-edit-cell) )
+
 ;;(define-key ss-map [C-R]        'ss-search-buffer)
                                         ;(define-key ss-map (kbd "RET")        'ss-edit-cell)
 (define-key ss-map (kbd "+")  'ss-increase-cur-col )
@@ -139,6 +131,10 @@
         (setq ss-input-cursor nc)
         )))
 
+(defun ss-quit-key ()
+  "ESC clears the input buffer" (interactive)
+  (setq ss-input-looping nil))
+
 (defun ss-clear-key ()
   "ESC clears the input buffer" (interactive)
   (setq ss-input-buffer "")
@@ -158,12 +154,12 @@
 			     (substring ss-input-cursor (+ 1 ss-input-cursor)) ))
 	  ))   
       (setq key (read-key (concat "Cell "  (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) ": " bstr ) ))
-      
+      (debug)
       (if (assoc key (cdr ss-map))   ;;defined keys get called...
 	  (funcall (cdr (assoc key (cdr ss-map))))
 	(if (event-modifiers key)
 	    (let ((kb (key-binding (vector key))))
-	      (while (string-match "prefix" (symbol-name  kb))
+	      (while (string-match "prefix" (symbol-name (vector kb))
 		(setq key (vconcat key (vector (read-key (symbol-name kb)))))
 		(setq kb (key-binding (vector key))))
 	      (funcall kb) )
@@ -231,7 +227,8 @@
 
 (defun ss-highlight (txt)
   "highlight text"
-  (propertize txt 'font-lock-face 'ss-face))
+  (let ((myface '((:bold t) (:foreground "Blue") (:background "White") (:invert t))))
+  (propertize txt 'font-lock-face myface)))
 ;;  (concat ">" txt "<"))
 
 (defun ss-pad-center (s i)
@@ -558,7 +555,8 @@
 
   
   (ss-draw-all)
-  (ss-input-loop))
+  (ss-input-loop)
+  )
 
 
 ;;;###autoload
