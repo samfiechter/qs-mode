@@ -100,11 +100,32 @@
         (setq ss-input-cursor nc)
         )))
 
-;;  ____        _          _____
-;; |  _ \  __ _| |_ __ _  |  ___|   _ _ __  ___
-;; | | | |/ _` | __/ _` | | |_ | | | | '_ \/ __|
-;; | |_| | (_| | || (_| | |  _|| |_| | | | \__ \
-;; |____/ \__,_|\__\__,_| |_|   \__,_|_| |_|___/
+;;  ____        _           ___       _     _      	
+;; |  _ \  __ _| |_ __ _   / / \   __| | __| |_ __ 	
+;; | | | |/ _` | __/ _` | / / _ \ / _` |/ _` | '__|	
+;; | |_| | (_| | || (_| |/ / ___ \ (_| | (_| | |   	
+;; |____/ \__,_|\__\__,_/_/_/   \_\__,_|\__,_|_|    functions
+;; 
+
+(defun ss-transform-fmla (from to fun)
+  "transform a function from from to to moving all addresses relative to the addresses
+EX:  From: A1 To: B1 Fun: = A2 / B1
+     Returns: = B2 / C1
+
+"
+  (let* ((f (ss-addr-to-index from))
+	 (t (ss-addr-to-index to))
+	 (s (concat " fun "))
+	 (refs (ss-formula-cell-refs s)))
+    (dolist (ref refs)
+      (setq cr (ss-index-to-addr (+ (- (ss-addr-to-index (elt ref 0)) f) t)))
+      (setq s (concat (substring s 0 (elt ref  1)) cr (substring s (elt ref 2))))
+      )
+    (substring s 1 -1)
+    ))
+      
+	
+  
 
 
 (defun ss-avl-cmp (a b)
