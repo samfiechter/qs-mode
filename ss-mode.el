@@ -60,45 +60,7 @@
 (define-key ss-map (kbd "+")  'ss-increase-cur-col )
 (define-key ss-map (kbd "-")  'ss-decrease-cur-col )
 
-;;  _   _                 ___       _             __
-;; | | | |___  ___ _ __  |_ _|_ __ | |_ ___ _ __ / _| __ _  ___ ___
-;; | | | / __|/ _ \ '__|  | || '_ \| __/ _ \ '__| |_ / _` |/ __/ _ \
-;; | |_| \__ \  __/ |     | || | | | ||  __/ |  |  _| (_| | (_|  __/
-;;  \___/|___/\___|_|    |___|_| |_|\__\___|_|  |_|  \__,_|\___\___|
 
-
-
-
-(defun ss-increase-cur-col ()
-  "Increase the width of the current column" (interactive)
-  (aset ss-col-widths ss-cur-col (+ 1 (elt ss-col-widths ss-cur-col)))
-  (ss-draw-all))
-
-(defun ss-decrease-cur-col ()
-  "Decrease the width of the current column" (interactive)
-  (aset ss-col-widths ss-cur-col (- (elt ss-col-widths ss-cur-col) 1))
-  (ss-draw-all))
-
-
-(defun ss-input-cursor-move (dir)
-  "Move the cursor" (interactive)
-  (if (and (>= 0 (+ dir ss-input-cursor)) (<= (+ ss-input-cursor dir) (length ss-input-buffer)))
-      (setq ss-input-cursor (+ ss-input-cursor dir))
-    nil
-    ))
-
-(defun ss-buffer-rot (dir)
-  "Rotate the Command Buffer"
-  (message "do buffer rot")
-  )
-
-(defun ss-backspace-key ()
-  "Delete from buffer"  (interactive)
-  (if (and (> 0 (length ss-input-buffer)) (0 > ss-input-cursor))
-      (let ((nc (- ss-input-cursor -1)))  ;; 01234
-        (setq ss-input-buffer (concat (substring ss-input-buffer 0 nc) (substring ss-input-cursor (+ 1 ss-input-cursor))))
-        (setq ss-input-cursor nc)
-        )))
 
 ;;  ____        _           ___       _     _      	
 ;; |  _ \  __ _| |_ __ _   / / \   __| | __| |_ __ 	
@@ -124,11 +86,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (substring s 1 -1)
     ))
       
-	
-  
-
 
 (defun ss-avl-cmp (a b)
+  "This is the function used by avl tree to compare ss addresses"
   (let ((A (if (sequencep a) (elt a ss-c-addr) a)) (B (if (sequencep b) (elt b ss-c-addr) b)))  ; a or b can be vectors or addresses
     (< (ss-addr-to-index A) (ss-addr-to-index B)) ))
 
@@ -297,6 +257,16 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	   (message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
 	   )))
 
+
+(defun ss-increase-cur-col ()
+  "Increase the width of the current column" (interactive)
+  (aset ss-col-widths ss-cur-col (+ 1 (elt ss-col-widths ss-cur-col)))
+  (ss-draw-all))
+
+(defun ss-decrease-cur-col ()
+  "Decrease the width of the current column" (interactive)
+  (aset ss-col-widths ss-cur-col (- (elt ss-col-widths ss-cur-col) 1))
+  (ss-draw-all))
 
 ;;   ____     _ _   _____            _             _   _
 ;;  / ___|___| | | | ____|_   ____ _| |_   _  __ _| |_(_) ___  _ __
