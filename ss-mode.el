@@ -128,24 +128,38 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (interactive "fFilename:")
  
 ;;  (find-file (concat filename ".csv"))
-  (let ((rw 0) (cl 0))
+
+  (let ((cc ss-cur-col) (cr ss-cur-row))
   (with-temp-buffer
    (insert-file-contents filename)
-     (beginning-of-buffer)
-     (while (not (eobp))
-       (let ((x 0) (cell "") (row [])
-          (line (thing-at-point 'line)))
-      (dolist (cell (split-string line ","))
-        (if (and (char-equal "\"" (substring cell 0 0))
-                 (char-equal "\"" (substring cell -1 -1)))
-            (setq cell (substring cell 1 -1)) nil )
-        (setq row (vconcat row (list  cell))) )
-      (setq ss-mode-data (vconcat ss-mode-data row))
-      (with-current-buffer (ses-goto-print (x+1) 0))
-      (setq rw (+ rw 1))
-      (setq cl (0))
-      (next-line)
-      ))) ))
+   (beginning-of-buffer)
+   (let ((x 0) (cell "") (cl ss-cur-col)
+	 (rw ss-cur-row) 
+	 (line (thing-at-point 'line)))
+     (while (not (eobp))          
+       (dolist (cell (split-string line ","))
+	 (debug)
+	 (if (string-match "\\s*\"?(.*)\"?\\s*"
+                           cell)
+	     (setq cell (string-match 1) nil))
+	 (ss-update-cell (concat (ss-col-letter cl) (int-to-string rw)) cell)
+	 (setq cl (+ cl 1))
+	 (if (= (- ss-max-col 1) cl) nil
+	   (progn
+	     (setq ss-max-col (+ cl 1))
+	     (setq ss-col-widths (vconcat ss-col-widths (list (elt ss-col-widths (- cl 1)))))
+	     )))
+       (setq rw (+ rw 1))
+       (if (= (- ss-max-row 1) rw)
+	   nil (setq ss-max-row (+ rw 1)))
+       
+       (setq cl ss-cur-col)
+       (forward-line)
+       )))
+  (setq ss-cur-col cc)
+  (setq ss-cur-rw cr)
+  (ss-draw-all)
+  ))
 
 
 ;;  ____                     _
@@ -280,7 +294,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
            (setq ss-cur-col new-col)
 
            (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
-	   (message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
+	   (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
 	   )))
 
 
@@ -387,7 +401,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 		 (read-string prompt ot  ss-input-history )
 	       (read-string prompt (char-to-string last-input-event)  ss-input-history )))
 
-    (ss-update-cell current-cell nt)))
+    (ss-update-cell current-cell nt)
+    (ss-move-down)
+    ))
 
 (defun ss-update-cell (current-cell nt)
   "Update the value/formula  of current cell to nt"
@@ -437,9 +453,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
     ;;draw it
     (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
-    )
-    (ss-move-down)
-    )
+    ))
 
 
 (defun ss-close () (interactive)
@@ -473,15 +487,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (setq ss-max-row 3)
   (setq ss-row-padding 4)
   (setq ss-data (avl-tree-create 'ss-avl-cmp))
-
-  
-  (setq ss-input-stack (list))
-  (setq ss-input-stack-idx 0)
-  (setq ss-input-buffer "")
-  (setq ss-input-cursor 0)
-
-
-
 
   
   (ss-draw-all)
