@@ -123,38 +123,123 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     out ))
 
 
+(defun ss-edit-cell ( )
+  "edit the selected cell"
+  (interactive)
+
+  (let*  (  (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)))
+	    (prompt (concat "Cell " current-cell ": "))
+           (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
+           (ot (if m (if (string= "" (elt m ss-c-fmla)) (elt m ss-c-val) (elt m ss-c-fmla)) "" ))
+           (nt 1) )
+    (setq nt (if (equal 'return last-input-event)
+		 (read-string prompt ot  ss-input-history )
+	       (read-string prompt (char-to-string last-input-event)  ss-input-history )))
+
+    (ss-update-cell current-cell nt)
+    (ss-move-down)
+    ))
+
+
+(defun ss-update-cell (current-cell nt)
+  "Update the value/formula  of current cell to nt"
+  (let  ( (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
+	   )
+  
+    ;;delete this cell from its old deps
+    (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
+            (dolist (ref refs)
+              (ss-del-dep (elt ref 1) current-cell))
+            ))
+
+    ;; if this is a formula, do deps
+    (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
+        (progn
+          (if m
+              (aset m ss-c-fmla nt)
+            (progn
+              (setq m (vector current-cell "0" "0" nt (list)))
+              (avl-tree-enter ss-data m)
+              ))
+          (let*  ((cv "") (ca "")
+                  (s (elt m ss-c-fmla))
+                  (delta 0)
+                  (refs (ss-formula-cell-refs s)) )
+            (if refs
+                (progn
+                  (dolist (ref refs)
+                    (setq ca (elt ref 0))
+                    (ss-add-dep ca current-cell)
+                    (setq cv (ss-cell-val ca))
+                    (setq s (concat (substring s 0 (+ delta (elt ref  1))) cv (substring s (+ (elt ref 2) delta ))))
+                    (setq delta (+ delta (- (length cv) (length ca))))
+                    )))
+            (setq nt (calc-eval (substring s 1)))
+            )) nil )
+    ;; if not a formula
+    (if m (aset m ss-c-val nt)
+      (progn  ;;else
+        (setq m (vector current-cell nt "0" "" (list)))
+        (avl-tree-enter ss-data m)  ))
+
+    ;;do eval-chain
+    (dolist (a (aref m ss-c-deps))
+      (if (not (equal a current-cell))  (ss-eval-chain a current-cell)  nil))
+
+    ;;draw it
+    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
+    ))
+
+
+
 (defun ss-import-csv (filename)
   "Read a CSV file into ss-mode"
   (interactive "fFilename:")
  
 ;;  (find-file (concat filename ".csv"))
 
-  (let ((cc ss-cur-col) (cr ss-cur-row))
+;; (let ((newline "1,\"2\",23,\"hi, there bob\",4\n")
+;;       (re "\\(.*?\\)[,\n]*")
+;;       cells (list ) (j 0))
+;;   (if (string-match re newline )
+;;       (while (not (equal j (match-end 1)))
+;; 	(setq cells (append cells  (list (match-string 1 newline))))
+;; 	(setq j (match-end 1))
+;; 	(string-match re newline j) 
+;; 	)    nil )  cells)
+;; nil
+  (let ((mybuff (current-buffer))
+	(cc ss-cur-col) 
+	(cr ss-cur-row))
   (with-temp-buffer
    (insert-file-contents filename)
    (beginning-of-buffer)
    (let ((x 0) (cell "") (cl ss-cur-col)
 	 (rw ss-cur-row) 
-	 (line (thing-at-point 'line)))
+	 (line (thing-at-point 'line))
+	 (re "[:blank:]*\"\\(.*?\\)\"[:blank:]*"))
      (while (not (eobp))          
+       (setq line (replace-regexp-in-string "\n" " " line))
+
        (dolist (cell (split-string line ","))
-	 (debug)
-	 (if (string-match "\\s*\"?(.*)\"?\\s*"
-                           cell)
-	     (setq cell (string-match 1) nil))
-	 (ss-update-cell (concat (ss-col-letter cl) (int-to-string rw)) cell)
+
+	 (with-current-buffer mybuff
+	     (ss-update-cell 
+	      (concat (ss-col-letter cl) (int-to-string rw)) 	 
+	      (if (string-match re cell) (match-string 1 cell) cell)
+	  ))
 	 (setq cl (+ cl 1))
-	 (if (= (- ss-max-col 1) cl) nil
+	 (if (<= (- ss-max-col 1) cl) 
 	   (progn
 	     (setq ss-max-col (+ cl 1))
 	     (setq ss-col-widths (vconcat ss-col-widths (list (elt ss-col-widths (- cl 1)))))
-	     )))
+	     ) nil ))
        (setq rw (+ rw 1))
-       (if (= (- ss-max-row 1) rw)
-	   nil (setq ss-max-row (+ rw 1)))
-       
+       (if (<= (- ss-max-row 1) rw)
+	   (setq ss-max-row (+ rw 1)) nil)       
        (setq cl ss-cur-col)
-       (forward-line)
+       (forward-line 1)
+       (setq line (thing-at-point 'line))
        )))
   (setq ss-cur-col cc)
   (setq ss-cur-rw cr)
@@ -172,12 +257,14 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-highlight (txt)
   "highlight text"
+
   (let ((myface '((:bold t) (:foreground "White") (:background "Blue") (:invert t))))
   (propertize txt 'font-lock-face myface)))
 ;;  (concat ">" txt "<"))
 
 (defun ss-pad-center (s i)
   "pad a string out to center it - expects stirng, col no (int)"
+  (setq s (replace-regexp-in-string "\n" " " s))
   (let ( (ll (length s) ))
     (if (>= ll (elt ss-col-widths i))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
@@ -188,6 +275,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-pad-left (s i)
   "pad to the left  - expects stirng, col no (int)"
+  (setq s (replace-regexp-in-string "\n" " " s))
   (let ( (ll (length s)) )
     (if (>= ll (elt ss-col-widths i))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
@@ -196,7 +284,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-pad-right (s i)
   "pad to the right  - expects stirng, col no (int)"
-  (let ( (ll (length s)) )
+  (setq s (replace-regexp-in-string "\n" " " s))
+    (let ( (ll (length s)) )
     (if (>= ll (elt ss-col-widths i))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
       (concat (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")) s)
@@ -387,78 +476,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (if m
         (delete cc (aref m ss-c-deps))
       nil) ))
-
-(defun ss-edit-cell ( )
-  "edit the selected cell"
-  (interactive)
-
-  (let*  (  (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)))
-	    (prompt (concat "Cell " current-cell ": "))
-           (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
-           (ot (if m (if (string= "" (elt m ss-c-fmla)) (elt m ss-c-val) (elt m ss-c-fmla)) "" ))
-           (nt 1) )
-    (setq nt (if (equal 'return last-input-event)
-		 (read-string prompt ot  ss-input-history )
-	       (read-string prompt (char-to-string last-input-event)  ss-input-history )))
-
-    (ss-update-cell current-cell nt)
-    (ss-move-down)
-    ))
-
-(defun ss-update-cell (current-cell nt)
-  "Update the value/formula  of current cell to nt"
-  (let  ( (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
-	   )
-  
-    ;;delete this cell from its old deps
-    (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
-            (dolist (ref refs)
-              (ss-del-dep (elt ref 1) current-cell))
-            ))
-
-    ;; if this is a formula, do deps
-    (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
-        (progn
-          (if m
-              (aset m ss-c-fmla nt)
-            (progn
-              (setq m (vector current-cell "0" "0" nt (list)))
-              (avl-tree-enter ss-data m)
-              ))
-          (let*  ((cv "") (ca "")
-                  (s (elt m ss-c-fmla))
-                  (delta 0)
-                  (refs (ss-formula-cell-refs s)) )
-            (if refs
-                (progn
-                  (dolist (ref refs)
-                    (setq ca (elt ref 0))
-                    (ss-add-dep ca current-cell)
-                    (setq cv (ss-cell-val ca))
-                    (setq s (concat (substring s 0 (+ delta (elt ref  1))) cv (substring s (+ (elt ref 2) delta ))))
-                    (setq delta (+ delta (- (length cv) (length ca))))
-                    )))
-            (setq nt (calc-eval (substring s 1)))
-
-            )) nil )
-    ;; if not a formula
-    (if m (aset m ss-c-val nt)
-      (progn  ;;else
-        (setq m (vector current-cell nt "0" "" (list)))
-        (avl-tree-enter ss-data m)  ))
-
-    ;;do eval-chain
-    (dolist (a (aref m ss-c-deps))
-      (if (not (equal a current-cell))  (ss-eval-chain a current-cell)  nil))
-
-    ;;draw it
-    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
-    ))
-
-
-(defun ss-close () (interactive)
-       (kill-buffer (current-buffer)) )
-
 
 
 
