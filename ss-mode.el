@@ -195,51 +195,38 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-import-csv (filename)
   "Read a CSV file into ss-mode"
   (interactive "fFilename:")
- 
-;;  (find-file (concat filename ".csv"))
-
-;; (let ((newline "1,\"2\",23,\"hi, there bob\",4\n")
-;;       (re "\\(.*?\\)[,\n]*")
-;;       cells (list ) (j 0))
-;;   (if (string-match re newline )
-;;       (while (not (equal j (match-end 1)))
-;; 	(setq cells (append cells  (list (match-string 1 newline))))
-;; 	(setq j (match-end 1))
-;; 	(string-match re newline j) 
-;; 	)    nil )  cells)
-;; nil
   (let ((mybuff (current-buffer))
 	(cc ss-cur-col) 
 	(cr ss-cur-row))
+    
   (with-temp-buffer
    (insert-file-contents filename)
    (beginning-of-buffer)
    (let ((x 0) (cell "") (cl ss-cur-col)
-	 (rw ss-cur-row) 
-	 (line (thing-at-point 'line))
-	 (re "[:blank:]*\"\\(.*?\\)\"[:blank:]*"))
-     (while (not (eobp))          
-       (setq line (replace-regexp-in-string "\n" " " line))
-
-       (dolist (cell (split-string line ","))
-
+	 (rw ss-cur-row) (j 0)
+	 (re ",?\"\\([^\"]+\\)\"[\n,]\\|,?\\([^,]+\\)[\n,]")
+	 (newline ""))
+     (while (not (eobp))
+       (setq newline (thing-at-point 'line))
+       (setq j 0)
+       (while (and (< j (length newline)) (string-match re newline j))
+	 (setq x (if (match-string 2 newline) 2 1))
+	 (setq cell (match-string x newline))
+	 (setq j (+ 1 (match-end x)))
 	 (with-current-buffer mybuff
-	     (ss-update-cell 
-	      (concat (ss-col-letter cl) (int-to-string rw)) 	 
-	      (if (string-match re cell) (match-string 1 cell) cell)
-	  ))
+	   (ss-update-cell (concat (ss-col-letter cl) (int-to-string rw)) cell)
+	  )
 	 (setq cl (+ cl 1))
-	 (if (<= (- ss-max-col 1) cl) 
-	   (progn
-	     (setq ss-max-col (+ cl 1))
-	     (setq ss-col-widths (vconcat ss-col-widths (list (elt ss-col-widths (- cl 1)))))
-	     ) nil ))
+	 (if (<= ss-max-col cl)
+	     (progn
+	       (setq ss-max-col (+ cl 1))
+	       (setq ss-col-widths (vconcat ss-col-widths (list (elt ss-col-widths (- cl 1)))))
+	       ) nil ))
        (setq rw (+ rw 1))
-       (if (<= (- ss-max-row 1) rw)
-	   (setq ss-max-row (+ rw 1)) nil)       
+       (if (<=  ss-max-row  rw)
+	   (setq ss-max-row (+ rw 1)) nil)
        (setq cl ss-cur-col)
        (forward-line 1)
-       (setq line (thing-at-point 'line))
        )))
   (setq ss-cur-col cc)
   (setq ss-cur-rw cr)
@@ -258,7 +245,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-highlight (txt)
   "highlight text"
 
-  (let ((myface '((:bold t) (:foreground "White") (:background "Blue") (:invert t))))
+  (let ((myface '((:foreground "White") (:background "Blue"))))
   (propertize txt 'font-lock-face myface)))
 ;;  (concat ">" txt "<"))
 
