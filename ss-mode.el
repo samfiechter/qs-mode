@@ -28,6 +28,11 @@
 (defvar ss-max-row 3)
 (defvar ss-row-padding 4)
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
+(defvar ss-range-parts-re "\\([A-Za-z]+\\)\\([0-9]+\\)\\:\\([A-Za-z]+\\)\\([0-9]+\\)")
+(defvar ss-one-cell-re "$?[A-Za-z]+$?[0-9]+")
+(defvar ss-range-re "$?[A-Za-z]+$?[0-9]+\\:$?[A-Za-z]+$?[0-9]+")
+(defvar ss-cell-or-range-re (concat "[^A-Za-z0-9]?\\(" ss-range-re  "\\|" ss-one-cell-re  "\\)[^A-Za-z0-9\(]?"))
+
 (defvar ss-input-history (list ))
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
@@ -115,7 +120,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         ) "A1") )
 
 (defun ss-col-letter (a)
-  "returns the letter of the column id arg -- expecst int"
+  "returns the letter of the column id arg -- expects int"
   (let ((out "") (n 1) (chra (string-to-char "A")))
     (while (<= 0 a)
       (setq out (concat (char-to-string (+ chra (% a 26))) out))
@@ -149,11 +154,11 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     ;;delete this cell from its old deps
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
             (dolist (ref refs)
-              (ss-del-dep (elt ref 1) current-cell))
-            ))
+              (ss-del-dep (elt ref 0) current-cell))
+            ) nil )
 
-    ;; if this is a formula, do deps
-    (if (= (string-to-char "=") (elt nt 0)) ; new value starts with  =
+    ;; if this is a formula, eval and do deps
+    (if (= (string-to-char "=") (elt nt 0)) ; formulas start with  =
         (progn
           (if m
               (aset m ss-c-fmla nt)
@@ -161,36 +166,37 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
               (setq m (vector current-cell "0" "0" nt (list)))
               (avl-tree-enter ss-data m)
               ))
-          (let*  ((cv "") (ca "")
-                  (s (elt m ss-c-fmla))
-                  (delta 0)
-                  (refs (ss-formula-cell-refs s)) )
-            (if refs
-                (progn
-                  (dolist (ref refs)
-                    (setq ca (elt ref 0))
-                    (ss-add-dep ca current-cell)
-                    (setq cv (ss-cell-val ca))
-                    (setq s (concat (substring s 0 (+ delta (elt ref  1))) cv (substring s (+ (elt ref 2) delta ))))
-                    (setq delta (+ delta (- (length cv) (length ca))))
-                    )))
-            (setq nt (calc-eval (substring s 1)))
-            )) nil )
-    ;; if not a formula
-    (if m (aset m ss-c-val nt)
-      (progn  ;;else
-        (setq m (vector current-cell nt "0" "" (list)))
-        (avl-tree-enter ss-data m)  ))
 
-    ;;do eval-chain
+	  (let ((s (concat nt " ")) (j 0) (d 0) (ms "") (cv "") (me 0) (mt 0))
+	    (while (and (< j (length s)) (string-match ss-cell-or-range-re s j))
+	      (setq ms (match-string 1 s))
+	      (setq me (match-end 1))
+	      (setq mt (match-beginning 1))
+	      (setq cv (ss-cell-val ms))
+	      (ss-add-dep ms current-cell)
+	      (setq d (+ me (- (length cv) (length ms))))
+	      (setq s (concat (if (< 0 mt) (substring s 0 mt ) "")
+			      cv
+			      (if (< me (length s)) (substring s me) "" )
+			      ))
+	      (setq j d))
+            (setq nt (calc-eval (substring s 1 -1)))  ;; throw away = and  ' '
+           )) nil )
+      ;; nt is now not a formula
+      (if m (aset m ss-c-val nt)
+	(progn  ;;else
+	  (setq m (vector current-cell nt "0" "" (list)))
+	  (avl-tree-enter ss-data m)
+	  ))
+      ;;do eval-chain
     (dolist (a (aref m ss-c-deps))
-      (if (not (equal a current-cell))  (ss-eval-chain a current-cell)  nil))
+      (if (equal a current-cell)
+	  nil ;; don't loop infinite
+	(ss-eval-chain a current-cell)))
 
     ;;draw it
     (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
     ))
-
-
 
 (defun ss-import-csv (filename)
   "Read a CSV file into ss-mode"
@@ -199,7 +205,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	(cc ss-cur-col) 
 	(cr ss-cur-row))
     
-  (with-temp-buffer
+  (with-temp-buffers
    (insert-file-contents filename)
    (beginning-of-buffer)
    (let ((x 0) (cell "") (cl ss-cur-col)
@@ -370,7 +376,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
            (setq ss-cur-col new-col)
 
            (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
-	   (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row) " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
+	   (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
+				       " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
 	   )))
 
 
@@ -392,14 +399,41 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;; fuctions dealing with eval
 
 
-(defun ss-cell-val (addr)
+(defun ss-cell-val (address)
   "get the value of a cell"
-  (let ((m (avl-tree-member ss-data  (ss-addr-to-index addr)) ))
-    (if m (elt m ss-c-val) "0")
-    ))
+  (let ((addr (replace-regexp-in-string "\\$" "" address)))
+    (if (string-match ss-range-parts-re addr)
+	(progn
+	  (let* ((s (ss-addr-to-index (concat  (match-string 1 addr) (match-string 2 addr))))
+		 (cl (- (ss-addr-to-index (concat  (match-string 1 addr) (match-string 4 addr))) s))
+		 (rl (- (ss-addr-to-index (concat  (match-string 3 addr) (match-string 2 addr))) s))
+		 (rv "[") (m 0)	    
+		 )
+	    (if (< cl 0) 
+		(progn
+		  (setq cl (* -1 cl))
+		  (setq s (- s cl)) ) nil)
+	    (if (< rl 0)
+		(progn
+		  (setq rl (* -1 rl))
+		  (setq s (- s rl))) nil )
+	    (setq rl (/ rl ss-max-row))
+	    (dotimes (r (+ 1 rl))
+	      (setq rv (concat rv "["))
+	      (dotimes (c (+ 1 cl))
+		(setq m (avl-tree-member ss-data (+ s c (* ss-max-row r))))
+		(setq rv (concat rv (if m (elt m ss-c-val) "0") (if (= c cl) "]" ",") ))
+		)
+	      (setq rv (concat rv (if (= r rl) "]" ",")))
+	      ) rv))
+      (progn
+      (let ((m (avl-tree-member ss-data  (ss-addr-to-index addr))) )
+	(if m (elt m ss-c-val) "0")
+	)))))
+
 
 (defun ss-eval-chain (addr chain)
-  "Updaet cell and all deps"
+  "Update cell and all deps"
   (let ((m (avl-tree-member ss-data (ss-addr-to-index addr))) )
     (if m
         (progn
@@ -409,21 +443,18 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
               (ss-eval-chain a (append chain (list addr)))
               ))))))
 
+
 (defun ss-formula-cell-refs (formula)
   "Takes a string and finds all the cell references in a string Ex:
    (ss-fomual-cell-refs (\"= A1+B1\"))
    returns a list ((\"A1\" 2 3) (\"B1\" 5 6))"
   (let* ((s (concat formula " "))
-         (re "[^A-Za-z0-9]\\([A-Za-z]+[0-9]+\\)[^A-Za-z0-9\(]")
-         (j nil) (retval (list )))
-    (if (string-match re s )
-        (progn
-          (while (not (equal j (match-end 1)))
-            (setq retval (append retval (list (list (substring s (match-beginning 1) (match-end 1)) (match-beginning 1) (match-end 1)))))
-            (setq j (match-end 1))
-            (string-match re s j) )) nil )
+         (j 0) (retval (list )))
+    (while (string-match ss-cell-or-range-re s j)
+      (setq retval (append retval (list (list (match-string 1 s) (match-beginning 1) (match-end 1)))))
+      (setq j (+ 1(match-end 1)))
+      )
     retval))
-
 
 (defun ss-eval-fun (addr)
   "sets cell value based on its function; draws"
@@ -449,24 +480,64 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-add-dep (ca cc)
   "Add to dep list."
-  (let  ( (m (avl-tree-member ss-data (ss-addr-to-index ca)) ))
-    (if m
-        (aset m ss-c-deps (append (elt m ss-c-deps) (list cc)))
-      (progn
-        (setq m (vector ca "" "" "" (list cc)))
-        (avl-tree-enter ss-data m)
-        ))))
+  (let ((addr (replace-regexp-in-string "\\$" "" ca)))
+  (if (string-match ss-range-parts-re addr)
+	(progn
+	  (let* ((s (ss-addr-to-index (concat  (match-string 1 addr) (match-string 2 addr))))
+		 (cl (- (ss-addr-to-index (concat  (match-string 1 addr) (match-string 4 addr))) s))
+		 (rl (- (ss-addr-to-index (concat  (match-string 3 addr) (match-string 2 addr))) s))
+		 )
+	    (if (< cl 0) 
+		(progn
+		  (setq cl (* -1 cl))
+		  (setq s (- s cl)) ) nil)
+	    (if (< rl 0)
+		(progn
+		  (setq rl (* -1 rl))
+		  (setq s (- s rl))) nil )
+	    (setq rl (/ rl ss-max-row))
+	    (dotimes (r (+ 1 rl))
+	      (dotimes (c (+ 1 cl))
+		(ss-add-dep  (ss-index-to-addr (+ s c (* r ss-max-row))) cc)
+		)
+	      )))
+    (let  ( (m (avl-tree-member ss-data (ss-addr-to-index addr))))
+      (if m
+	  (aset m ss-c-deps (append (elt m ss-c-deps) (list cc)))
+	(progn
+	  (setq m (vector addr "" "" "" (list cc)))
+	  (avl-tree-enter ss-data m)
+	  ))))))
 
 (defun ss-del-dep (ca cc)
   "Remove from dep list."
-  (let  ( (m (avl-tree-member ss-data (ss-addr-to-index ca))))
-    (if m
-        (delete cc (aref m ss-c-deps))
-      nil) ))
+    (let ((addr (replace-regexp-in-string "\\$" "" ca)))
+  (if (string-match ss-range-parts-re addr)
+	(progn
+	  (let* ((s (ss-addr-to-index (concat  (match-string 1 addr) (match-string 2 addr))))
+		 (cl (- (ss-addr-to-index (concat  (match-string 1 addr) (match-string 4 addr))) s))
+		 (rl (- (ss-addr-to-index (concat  (match-string 3 addr) (match-string 2 addr))) s))
+		 )
+	    (if (< cl 0) 
+		(progn
+		  (setq cl (* -1 cl))
+		  (setq s (- s cl)) ) nil)
+	    (if (< rl 0)
+		(progn
+		  (setq rl (* -1 rl))
+		  (setq s (- s rl))) nil )
+	    (setq rl (/ rl ss-max-row))
+	    (dotimes (r (+ 1 rl))
+	      (dotimes (c (+ 1 cl))
+		(ss-del-dep (ss-index-to-addr (+ s c (* r ss-max-row))) cc)
+		)
+	      )))
+    (let  ( (m (avl-tree-member ss-data (ss-addr-to-index addr))))
+      (if m
+	  (delete cc (aref m ss-c-deps))
+	nil) ))))
 
 
-
-;;;###autoload
 (define-derived-mode ss-mode text-mode ss-empty-name
   "ss game mode
   Keybindings:
@@ -482,8 +553,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   ;;           ))
 
 
-  (pop-to-buffer ss-empty-name nil)
 
+  (pop-to-buffer ss-empty-name nil)
   (setq ss-cur-col 0)
   (setq ss-max-col 3)
   (setq ss-col-widths (make-vector ss-max-col 7))
@@ -513,7 +584,20 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (pop-to-buffer ss-empty-name nil)
   (ss-mode) )
 
+	;;  ____        __ __  __       _   _         	
+	;; |  _ \  ___ / _|  \/  | __ _| |_| |__  ___ 	
+	;; | | | |/ _ \ |_| |\/| |/ _` | __| '_ \/ __|	
+	;; | |_| |  __/  _| |  | | (_| | |_| | | \__ \	
+	;; |____/ \___|_| |_|  |_|\__,_|\__|_| |_|___/	
 
+
+
+(defmath sum (x)
+  "add the items in the range"
+  (interactive 1 "sum")
+  :" vflat(x) * ((vflat(x) *0) +1)"
+)	
+  
 
 (provide 'ss-mode)
 
