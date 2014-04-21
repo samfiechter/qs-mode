@@ -181,7 +181,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 			      ))
 	      (setq j d))
             (setq nt (calc-eval (substring s 1 -1)))  ;; throw away = and  ' '
-           )) nil )
+           )) (if m (aset m ss-c-fmla "") nil))
       ;; nt is now not a formula
       (if m (aset m ss-c-val nt)
 	(progn  ;;else
@@ -584,20 +584,19 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (pop-to-buffer ss-empty-name nil)
   (ss-mode) )
 
-	;;  ____        __ __  __       _   _         	
-	;; |  _ \  ___ / _|  \/  | __ _| |_| |__  ___ 	
-	;; | | | |/ _ \ |_| |\/| |/ _` | __| '_ \/ __|	
-	;; | |_| |  __/  _| |  | | (_| | |_| | | \__ \	
-	;; |____/ \___|_| |_|  |_|\__,_|\__|_| |_|___/	
+;;  ____        __ __  __       _   _         	
+;; |  _ \  ___ / _|  \/  | __ _| |_| |__  ___ 	
+;; | | | |/ _ \ |_| |\/| |/ _` | __| '_ \/ __|	
+;; | |_| |  __/  _| |  | | (_| | |_| | | \__ \	
+;; |____/ \___|_| |_|  |_|\__,_|\__|_| |_|___/	
 
-
-
-(defmath sum (x)
+(defmath sum (&rest x)
   "add the items in the range"
   (interactive 1 "sum")
-  :" vflat(x) * ((vflat(x) *0) +1)"
-)	
+  :" vflat(x) * ((vflat(x) * 0 ) + 1)"
   
+)
+ 
 
 (provide 'ss-mode)
 
