@@ -37,14 +37,16 @@
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
 (defvar ss-c-addr 0)
-;;   1 = value (number)
-(defvar ss-c-val 1)
-;;   2 = format (TBD)
-(defvar ss-c-fmt 2)
-;;   3 = formula
-(defvar ss-c-fmla 3)
-;;   4 = depends on -- list of indexes
-(defvar ss-c-deps 4)
+;;   1 = value (formatted)
+(defvar ss-c-fmtd 1)
+;;   2 = value (number)
+(defvar ss-c-val 2)
+;;   3 = format (TBD)
+(defvar ss-c-fmt 3)
+;;   4 = formula
+(defvar ss-c-fmla 4)
+;;   5 = depends on -- list of indexes
+(defvar ss-c-deps 5)
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar ss-map  (make-sparse-keymap 'ss-map))
@@ -73,6 +75,10 @@
 ;; | |_| | (_| | || (_| |/ / ___ \ (_| | (_| | |   	
 ;; |____/ \__,_|\__\__,_/_/_/   \_\__,_|\__,_|_|    functions
 ;; 
+
+(defun ss-new-cell (addr) "Blank cell" 
+(vector addr "" 0 "" "" (list) )
+)
 
 (defun ss-transform-fmla (from to fun)
   "transform a function from from to to moving all addresses relative to the addresses
@@ -163,7 +169,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (if m
               (aset m ss-c-fmla nt)
             (progn
-              (setq m (vector current-cell "0" "0" nt (list)))
+              (setq m (ss-new-cell current-cell))
+	      (aset m ss-c-fmla nt)
               (avl-tree-enter ss-data m)
               ))
 
@@ -247,6 +254,45 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;; |____/|_|  \__,_| \_/\_/ |_|_| |_|\__, |
 ;;                                   |___/
 ;; functions dealing with the cursor and cell drawing /padding
+
+(defun ss-format (fmt value) 
+  "output text format of numerical value according to format string
+
+000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
+#,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
+0.00## -- Round to four digits, and pad out to at least two."
+(let ((ip 0)   ;;int padding
+      (dp 0)   ;;decmel padding
+      (dr 0)   ;;decmil round
+      (dot-index (string-match "\\." fmt))
+      (power 0)
+      (dec ""))
+  (dotimes (i (or dot-index (length fmt)))
+    (and (= (elt fmt i) (string-to-char "0")) (setq ip (1+ ip)))
+
+    )
+  (if dot-index
+      (progn (dotimes (i (- (length fmt) dot-index))
+	(and (= (elt fmt (+ i dot-index)) (string-to-char "0")) (setq dp (1+ dp)))
+	(and (= (elt fmt (+ i dot-index)) (string-to-char "#")) (setq dr (1+ dr)))    
+	)
+	     (setq power (+ dp dr))
+	     (setq dec (fround (* (- value (ftruncate value)) (expt 10 power))))
+	     (setq power (- (length (format "%d" dec)) dp))
+	     (if (> power 0)
+		 (setq dec (* dec (expt 10 power)))
+	       nil
+	     )
+	     (setq dec (concat "." (format "%d" dec)))
+	     ) nil )
+  (setq dec (concat (format (concat "%0." (number-to-string ip) "d") (fround value)) (if dot-index dec nil)))
+  (if (string-match "," fmt)
+      (let ((re "\\([0-9]\\)\\([0-9]\\{3\\}\\)\\([,\\.]\\)\\|\\([0-9]\\)\\([0-9][0-9][0-9]\\)$")
+	    (rep (lambda (a) (concat (match-string 1 a) (match-string 4 a) "," (match-string 5 a) (match-string 2 a) (match-string 3 a)))))
+	(while (string-match re dec)
+	  (setq dec (replace-regexp-in-string re rep dec)))
+	) nil )
+  dec))
 
 (defun ss-highlight (txt)
   "highlight text"
@@ -505,7 +551,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (if m
 	  (aset m ss-c-deps (append (elt m ss-c-deps) (list cc)))
 	(progn
-	  (setq m (vector addr "" "" "" (list cc)))
+	  (setq m (ss-new-cell (addr)))
+	  (aset m ss-c-deps (list cc))
 	  (avl-tree-enter ss-data m)
 	  ))))))
 
