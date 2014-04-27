@@ -33,6 +33,8 @@
 (defvar ss-range-re "$?[A-Za-z]+$?[0-9]+\\:$?[A-Za-z]+$?[0-9]+")
 (defvar ss-cell-or-range-re (concat "[^A-Za-z0-9]?\\(" ss-range-re  "\\|" ss-one-cell-re  "\\)[^A-Za-z0-9\(]?"))
 
+(defvar ss-default-number-fmt ",0.00")
+
 (defvar ss-input-history (list ))
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
@@ -77,7 +79,7 @@
 ;; 
 
 (defun ss-new-cell (addr) "Blank cell" 
-(vector addr "" 0 "" "" (list) )
+(vector addr "" "" ss-default-number-fmt "" (list) )
 )
 
 (defun ss-transform-fmla (from to fun)
@@ -156,7 +158,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "Update the value/formula  of current cell to nt"
   (let  ( (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
 	   )
-  
+    (debug)
     ;;delete this cell from its old deps
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
             (dolist (ref refs)
@@ -192,7 +194,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       ;; nt is now not a formula
       (if m (aset m ss-c-val nt)
 	(progn  ;;else
-	  (setq m (vector current-cell nt "0" "" (list)))
+	  (setq m (ss-new-cell current-cell))
+	  (aset m ss-c-val nt)
+	  (aset m ss-c-fmt ss-default-number-fmt)
+	  (aset m ss-c-fmtd (ss-format-number ss-default-number-fmt nt))
 	  (avl-tree-enter ss-data m)
 	  ))
       ;;do eval-chain
@@ -204,6 +209,58 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     ;;draw it
     (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
     ))
+
+
+(defun ss-xml-query (node child-node)
+"search an xml doc to find nodes with tags that match child-node"
+(let ((match (list (if (string= (car node) child-node) node nil)))
+      (children (cddr node)))
+     (if (listp children)
+     	 (dolist (child children)
+	   (if (listp child)
+	       (setq match (append match (ss-xml-query child child-node))) nil)
+	   ) nil )
+     (delq nil match)))
+
+(defun ss-read-xlsx (filename id )
+  "Try and read an XLSX file into ss-mode"
+  (interactive "fFilename:")
+  (let ((xml nil)
+	(sheets (list)))
+    (with-temp-buffer  ;; read in the workbook file to get name/num sheets
+      (erase-buffer) 
+      (shell-command (concat "unzip -p " filename " xl/workbook.xml") (current-buffer))
+      (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
+      )
+    (dolist (sh (ss-xml-query (car xml) "sheet"))
+      (setq sheets (cons sheets (cons (cdr (assoc sh "sheetId")) (cdr (assoc sh "name"))))))
+    (if (assoc sheets id)
+	(with-temp-buffer
+	  (erase-buffer) 
+	  (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (number-to-string id) ".xml") (current-buffer))
+	  (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
+	  (let ((cols (ss-xml-query (car xml) "col")))
+	    (dolist (col cols)
+	      (let ((max (cdr (assoc col "max")))
+		    (min (cdr (assoc col "min")))
+		    (width (cdr (assoc col "width")))
+		    (len (length ss-col-widths)))
+		(if (< len max)
+		    (setq ss-col-widths (vconcat ss-col-widths (make-vector (- max len) (truncate width)))) nil )
+		(dotimes (i (+1 (- max min)))
+		  (aset ss-col-widths (+ min i) (truncate width)))
+		)))
+	  (dolist (cell (ss-xml-query (car xml) "c"))
+	    (let* ((range (car (assoc (elt cell 1) "r")))
+		  (value (or (cddr (assoc (elt cell 2) "v")) ""))
+		  (fmla (or (cddr (assoc (elt cell 2) "f")) ""))
+		  )
+	      (if (string= "" fmla)
+		  (ss-update-cell range value)
+		(ss-update-cell range (concat "=" fmla)))
+	      )))
+      (throw "error" (concat "Sheet Number No sheet" id ".xml in " filename))
+      )))      
 
 (defun ss-import-csv (filename)
   "Read a CSV file into ss-mode"
@@ -255,17 +312,19 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;;                                   |___/
 ;; functions dealing with the cursor and cell drawing /padding
 
-(defun ss-format (fmt value) 
+(defun ss-format-number (fmt val) 
   "output text format of numerical value according to format string
 
 000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
 #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
 0.00## -- Round to four digits, and pad out to at least two."
-(let ((ip 0)   ;;int padding
+
+  (let ((ip 0)   ;;int padding
       (dp 0)   ;;decmel padding
       (dr 0)   ;;decmil round
       (dot-index (string-match "\\." fmt))
       (power 0)
+      (value (if (numberp val) val (string-to-number val)))
       (dec ""))
   (dotimes (i (or dot-index (length fmt)))
     (and (= (elt fmt i) (string-to-char "0")) (setq ip (1+ ip)))
