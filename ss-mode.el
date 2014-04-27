@@ -158,7 +158,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "Update the value/formula  of current cell to nt"
   (let  ( (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
 	   )
-    (debug)
+;;    (debug)
     ;;delete this cell from its old deps
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
             (dolist (ref refs)
@@ -192,11 +192,13 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             (setq nt (calc-eval (substring s 1 -1)))  ;; throw away = and  ' '
            )) (if m (aset m ss-c-fmla "") nil))
       ;; nt is now not a formula
-      (if m (aset m ss-c-val nt)
-	(progn  ;;else
+    (if m
+	(progn 
+	    (aset m ss-c-val nt)
+	    (aset m ss-c-fmtd (ss-format-number (elt m ss-c-fmt) nt)))
+      (progn  ;;else
 	  (setq m (ss-new-cell current-cell))
 	  (aset m ss-c-val nt)
-	  (aset m ss-c-fmt ss-default-number-fmt)
 	  (aset m ss-c-fmtd (ss-format-number ss-default-number-fmt nt))
 	  (avl-tree-enter ss-data m)
 	  ))
@@ -207,7 +209,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	(ss-eval-chain a current-cell)))
 
     ;;draw it
-    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right nt ss-cur-col) ))
+    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right (elt m ss-c-fmtd) ss-cur-col) ))
     ))
 
 
@@ -222,7 +224,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	   ) nil )
      (delq nil match)))
 
-(defun ss-read-xlsx (filename id )
+(defun ss-read-xlsx (filename idn )
   "Try and read an XLSX file into ss-mode"
   (interactive "fFilename:")
   (let ((xml nil)
@@ -232,34 +234,41 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (shell-command (concat "unzip -p " filename " xl/workbook.xml") (current-buffer))
       (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
       )
+
     (dolist (sh (ss-xml-query (car xml) "sheet"))
-      (setq sheets (cons sheets (cons (cdr (assoc sh "sheetId")) (cdr (assoc sh "name"))))))
-    (if (assoc sheets id)
+      (let (( id 	 (cdr (assoc 'sheetId (elt sh 1))))
+	    (name 		 (cdr (assoc 'name (elt sh 1)))))
+      (setq sheets (append (list (cons id name )) sheets))))
+    (delq nil sheets) 
+
+    (if (assoc (format "%d" idn) sheets )
 	(with-temp-buffer
 	  (erase-buffer) 
-	  (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (number-to-string id) ".xml") (current-buffer))
+	  (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (format "%d" idn) ".xml") (current-buffer))
 	  (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
+    (debug)
 	  (let ((cols (ss-xml-query (car xml) "col")))
 	    (dolist (col cols)
-	      (let ((max (cdr (assoc col "max")))
-		    (min (cdr (assoc col "min")))
-		    (width (cdr (assoc col "width")))
+
+	      (let ((max (cdr (assoc 'max (elt col 1))))
+		    (min (cdr (assoc 'min (elt col 1))))
+		    (width (cdr (assoc 'width (elt col 1))))
 		    (len (length ss-col-widths)))
 		(if (< len max)
 		    (setq ss-col-widths (vconcat ss-col-widths (make-vector (- max len) (truncate width)))) nil )
 		(dotimes (i (+1 (- max min)))
 		  (aset ss-col-widths (+ min i) (truncate width)))
 		)))
+
 	  (dolist (cell (ss-xml-query (car xml) "c"))
-	    (let* ((range (car (assoc (elt cell 1) "r")))
-		  (value (or (cddr (assoc (elt cell 2) "v")) ""))
-		  (fmla (or (cddr (assoc (elt cell 2) "f")) ""))
-		  )
+	    (let* ((range (car (assoc "r" (elt cell 1) )))
+		   (value (if (< 2 (length cell)) (cddr (assoc 'v (elt cell 2) )) ""))
+		   (fmla (if (< 2 (length cell)) (cddr (assoc 'f (elt cell 2) )) "")))
 	      (if (string= "" fmla)
 		  (ss-update-cell range value)
 		(ss-update-cell range (concat "=" fmla)))
 	      )))
-      (throw "error" (concat "Sheet Number No sheet" id ".xml in " filename))
+      (throw "error" (concat "Sheet Number No sheet" idn ".xml in " filename))
       )))      
 
 (defun ss-import-csv (filename)
@@ -389,8 +398,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (concat (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")) s)
       )))
 
-
-
 (defun ss-draw-all ()
   "Populate the current ss buffer." (interactive)
   (pop-to-buffer ss-empty-name nil)
@@ -407,7 +414,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (dotimes (i ss-max-col)
             (let ((m (avl-tree-member ss-data (+ j (* ss-max-row (+ i 1))))))
               (if m
-                  (insert (ss-pad-right (elt m ss-c-val) i))
+                  (insert (ss-pad-right (elt m ss-c-fmtd) i))
                 (insert (make-string (elt ss-col-widths i) (string-to-char " "))))))))
 
       (insert "\n"))
@@ -473,8 +480,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
               (new-col (+ ss-cur-col x))
               (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
               (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
-              (ot (if m (elt m ss-c-val) ""))
-              (nt (if n (elt n ss-c-val) "")))
+              (ot (if m (elt m ss-c-fmtd) ""))
+              (nt (if n (elt n ss-c-fmtd) "")))
          (progn
            (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
            (setq ss-cur-row new-row)
@@ -574,12 +581,14 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             (setq s (concat (substring s 0 (elt ref  1)) cv (substring s (elt ref 2)))))
           (setq cv (calc-eval (substring s 1)))
           (aset m ss-c-val cv)
+	  (aset m ss-c-fmtd (ss-format-number (elt m ss-c-fmt) cv))
           (let ((c 0) (i 0) (chra (- (string-to-char "A") 1)))
             (while (and  (< i (length addr)) (< chra (elt addr i)))
               (setq c (+ (* 26 c)  (- (logand -33 (elt addr i)) chra))) ;; -33 is mask to change case
               (setq i (+ 1 i)))
-            (ss-draw-cell (- c 1) (string-to-int (substring addr i)) (ss-pad-right cv (- c 1))) )
-          cv ) (aref m ss-c-val)
+            (ss-draw-cell (- c 1) (string-to-int (substring addr i))
+			  (ss-pad-right (elt m ss-c-fmtd) (- c 1))) )
+          cv ) (aref m ss-c-val) 
           )))
 
 
@@ -610,7 +619,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (if m
 	  (aset m ss-c-deps (append (elt m ss-c-deps) (list cc)))
 	(progn
-	  (setq m (ss-new-cell (addr)))
+	  (setq m (ss-new-cell addr))
 	  (aset m ss-c-deps (list cc))
 	  (avl-tree-enter ss-data m)
 	  ))))))
@@ -688,7 +697,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 "
   (interactive)
   (pop-to-buffer ss-empty-name nil)
-  (ss-mode) )
+  (ss-mode)
+  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" 1)
+  )
 
 ;;  ____        __ __  __       _   _         	
 ;; |  _ \  ___ / _|  \/  | __ _| |_| |__  ___ 	
