@@ -158,7 +158,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "Update the value/formula  of current cell to nt"
   (let  ( (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
 	   )
-;;    (debug)
+
     ;;delete this cell from its old deps
     (if m (let ((refs (ss-formula-cell-refs  (aref m ss-c-fmla))))
             (dolist (ref refs)
@@ -166,7 +166,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             ) nil )
 
     ;; if this is a formula, eval and do deps
-    (if (= (string-to-char "=") (elt nt 0)) ; formulas start with  =
+    (if (and (> 0 (length nt)) (= (string-to-char "=") (elt nt 0))) ; formulas start with  =
         (progn
           (if m
               (aset m ss-c-fmla nt)
@@ -175,7 +175,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	      (aset m ss-c-fmla nt)
               (avl-tree-enter ss-data m)
               ))
-
+	  
 	  (let ((s (concat nt " ")) (j 0) (d 0) (ms "") (cv "") (me 0) (mt 0))
 	    (while (and (< j (length s)) (string-match ss-cell-or-range-re s j))
 	      (setq ms (match-string 1 s))
@@ -189,8 +189,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 			      (if (< me (length s)) (substring s me) "" )
 			      ))
 	      (setq j d))
-            (setq nt (calc-eval (substring s 1 -1)))  ;; throw away = and  ' '
-           )) (if m (aset m ss-c-fmla "") nil))
+            (setq nt (calc-eval (substring s 1 -1)))  ;; throw away = and  ' '   
+	    ))
+      (if m (aset m ss-c-fmla "") nil))
       ;; nt is now not a formula
     (if m
 	(progn 
@@ -246,14 +247,14 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	  (erase-buffer) 
 	  (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (format "%d" idn) ".xml") (current-buffer))
 	  (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
-    (debug)
 	  (let ((cols (ss-xml-query (car xml) "col")))
+
 	    (dolist (col cols)
 
 	      (let ((max (cdr (assoc 'max (elt col 1))))
 		    (min (cdr (assoc 'min (elt col 1))))
 		    (width (cdr (assoc 'width (elt col 1))))
-		    (len (length ss-col-widths)))
+		    (len (length ss-col-widths)) )
 		(if (< len max)
 		    (setq ss-col-widths (vconcat ss-col-widths (make-vector (- max len) (truncate width)))) nil )
 		(dotimes (i (+1 (- max min)))
@@ -261,15 +262,26 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 		)))
 
 	  (dolist (cell (ss-xml-query (car xml) "c"))
-	    (let* ((range (car (assoc "r" (elt cell 1) )))
+	    (let* ((range (cdr (assoc 'r (elt cell 1) )))
 		   (value (if (< 2 (length cell)) (cddr (assoc 'v (elt cell 2) )) ""))
-		   (fmla (if (< 2 (length cell)) (cddr (assoc 'f (elt cell 2) )) "")))
-	      (if (string= "" fmla)
+		   (fmla (if (< 2 (length cell)) (cddr (assoc 'f (elt cell 2) )) "")))	      
+
+	      (string-match "\\([A-Za-z]+\\)" range)
+	      (let ((col (- (ss-addr-to-index (concat (match-string 1 range) "0")) ss-max-col)))
+		(if (<= ss-max-col col)
+		    (progn
+		      (setq ss-col-widths (vconcat ss-col-widths
+						   (make-vector  (- col ss-max-col -1) 7)))
+		      (setq ss-max-col (length ss-col-widths))
+		      ) nil ))
+	(if      (string= "" fmla)
 		  (ss-update-cell range value)
 		(ss-update-cell range (concat "=" fmla)))
-	      )))
+	  )))
       (throw "error" (concat "Sheet Number No sheet" idn ".xml in " filename))
-      )))      
+      ))
+  (ss-draw-all)
+  )
 
 (defun ss-import-csv (filename)
   "Read a CSV file into ss-mode"
@@ -345,15 +357,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	(and (= (elt fmt (+ i dot-index)) (string-to-char "#")) (setq dr (1+ dr)))    
 	)
 	     (setq power (+ dp dr))
-	     (setq dec (fround (* (- value (ftruncate value)) (expt 10 power))))
-	     (setq power (- (length (format "%d" dec)) dp))
+	     (setq dec  (fround (* (- (+ 1 value) (ftruncate value)) (expt 10 power))))  ;; 0.0 = 1.00
+	     (setq power (- (length (format "%d" dec)) dp 2))  ; -2 = "1."
 	     (if (> power 0)
 		 (setq dec (* dec (expt 10 power)))
 	       nil
 	     )
-	     (setq dec (concat "." (format "%d" dec)))
+	     (setq dec (concat "." (substring (format "%d" dec) 1)))
 	     ) nil )
-  (setq dec (concat (format (concat "%0." (number-to-string ip) "d") (fround value)) (if dot-index dec nil)))
+  (setq dec (concat (format (concat "%0." (number-to-string ip) "d") (ftruncate value)) (if dot-index dec nil)))
   (if (string-match "," fmt)
       (let ((re "\\([0-9]\\)\\([0-9]\\{3\\}\\)\\([,\\.]\\)\\|\\([0-9]\\)\\([0-9][0-9][0-9]\\)$")
 	    (rep (lambda (a) (concat (match-string 1 a) (match-string 4 a) "," (match-string 5 a) (match-string 2 a) (match-string 3 a)))))
@@ -401,6 +413,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-draw-all ()
   "Populate the current ss buffer." (interactive)
   (pop-to-buffer ss-empty-name nil)
+  (debug)
   (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
     (beginning-of-buffer)
     (erase-buffer)
@@ -707,7 +720,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;; | |_| |  __/  _| |  | | (_| | |_| | | \__ \	
 ;; |____/ \___|_| |_|  |_|\__,_|\__|_| |_|___/	
 
-(defmath sum (&rest x)
+(defmath SUM ( x)
   "add the items in the range"
   (interactive 1 "sum")
   :" vflat(x) * ((vflat(x) * 0 ) + 1)"
