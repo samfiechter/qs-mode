@@ -36,6 +36,7 @@
 (defvar ss-default-number-fmt ",0.00")
 
 (defvar ss-input-history (list ))
+(defvar ss-format-history (list ))
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
 (defvar ss-c-addr 0)
@@ -62,7 +63,7 @@
 (define-key ss-map [return]     'ss-edit-cell)
 (define-key ss-map [backspace]  'ss-clear-key)
 (define-key ss-map [remap self-insert-command] 'ss-edit-cell)
-
+(define-key ss-map (kbd "C-x f") 'ss-edit-format) 
 
 ;;(define-key ss-map [C-R]        'ss-search-buffer)
                                         ;(define-key ss-map (kbd "RET")        'ss-edit-cell)
@@ -108,12 +109,14 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-addr-to-index (a)
   "Convert from ss addr (e.g. A1) to index  -- expects [A-Z]+[0-9]+"
-  (let ((chra (- (string-to-char "A") 1)))
+  (let ((chra (- (string-to-char "A") 1))
+	(lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
+	)
     (if (sequencep a)
         (progn
           (let ((out 0) (i 0))
             (while (and  (< i (length a)) (< chra (elt a i)))
-              (setq out (+ (* 26 out)  (- (logand -33 (elt a i)) chra))) ;; -33 is mask to change case
+              (setq out (+ (* 26 out)  (- (logand lcmask (elt a i)) chra))) ;; -33 is mask to change case
               (setq i (+ 1 i)))
             (setq out (+ (* out ss-max-row) (string-to-int (substring a i))))
             out))
@@ -135,7 +138,23 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (setq a  (- (/ a 26) 1)) )
     out ))
 
+(defun ss-edit-format ( )
+  "edit the format of the selected cell" (interactive)
+  (let*  (  (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)))
+	    (m (avl-tree-member ss-data (ss-addr-to-index current-cell)))
+	    (of (if m (elt m ss-c-fmt) ss-default-number-fmt))
+	    (prompt (concat "Cell " current-cell ": "))
+	    (nt (read-string prompt of  ss-format-history )))
+    (if m
+	(progn
+	  (aset m ss-c-fmla nt)
+	  (aset m ss-c-fmtd (ss-format-number nt (elt m ss-c-val)))
+	  (ss-draw-cell ss-cur-col ss-cur-row (elt m ss-c-fmtd)))
+      (progn
+	(setq m (ss-new-cell current-cell))
+	(aset m ss-c-fmla nt)))))
 
+	    
 (defun ss-edit-cell ( )
   "edit the selected cell"
   (interactive)
@@ -164,9 +183,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             (dolist (ref refs)
               (ss-del-dep (elt ref 0) current-cell))
             ) nil )
-
     ;; if this is a formula, eval and do deps
-    (if (and (> 0 (length nt)) (= (string-to-char "=") (elt nt 0))) ; formulas start with  =
+    (if (and (< 0 (length nt)) (= (string-to-char "=") (elt nt 0))) ; formulas start with  =
         (progn
           (if m
               (aset m ss-c-fmla nt)
@@ -175,24 +193,19 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	      (aset m ss-c-fmla nt)
               (avl-tree-enter ss-data m)
               ))
-	  
-	  (let ((s (concat nt " ")) (j 0) (d 0) (ms "") (cv "") (me 0) (mt 0))
-	    (while (and (< j (length s)) (string-match ss-cell-or-range-re s j))
-	      (setq ms (match-string 1 s))
-	      (setq me (match-end 1))
-	      (setq mt (match-beginning 1))
-	      (setq cv (ss-cell-val ms))
-	      (ss-add-dep ms current-cell)
-	      (setq d (+ me (- (length cv) (length ms))))
-	      (setq s (concat (if (< 0 mt) (substring s 0 mt ) "")
-			      cv
-			      (if (< me (length s)) (substring s me) "" )
-			      ))
-	      (setq j d))
-            (setq nt (calc-eval (substring s 1 -1)))  ;; throw away = and  ' '   
+
+	  (let ((s (concat nt " ")) (deps (list)))
+
+	    (setq s (replace-regexp-in-string ss-cell-or-range-re (lambda (str)
+								    (let ((addr (match-string 1 str)))
+								      (push addr deps)
+								      (ss-cell-val addr))) s nil nil 1))
+	    (dolist (dep deps)
+	      (ss-add-dep dep current-cell))
+	    (setq nt (calc-eval (substring s 1 -1 ) ))  ;; throw away = and  ' '
 	    ))
       (if m (aset m ss-c-fmla "") nil))
-      ;; nt is now not a formula
+    ;; nt is now not a formula
     (if m
 	(progn 
 	    (aset m ss-c-val nt)
@@ -333,46 +346,49 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;;                                   |___/
 ;; functions dealing with the cursor and cell drawing /padding
 
+
+
 (defun ss-format-number (fmt val) 
   "output text format of numerical value according to format string
 
 000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
 #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
 0.00## -- Round to four digits, and pad out to at least two."
-
-  (let ((ip 0)   ;;int padding
-      (dp 0)   ;;decmel padding
-      (dr 0)   ;;decmil round
-      (dot-index (string-match "\\." fmt))
-      (power 0)
-      (value (if (numberp val) val (string-to-number val)))
-      (dec ""))
-  (dotimes (i (or dot-index (length fmt)))
-    (and (= (elt fmt i) (string-to-char "0")) (setq ip (1+ ip)))
-
-    )
-  (if dot-index
-      (progn (dotimes (i (- (length fmt) dot-index))
-	(and (= (elt fmt (+ i dot-index)) (string-to-char "0")) (setq dp (1+ dp)))
-	(and (= (elt fmt (+ i dot-index)) (string-to-char "#")) (setq dr (1+ dr)))    
-	)
-	     (setq power (+ dp dr))
-	     (setq dec  (fround (* (- (+ 1 value) (ftruncate value)) (expt 10 power))))  ;; 0.0 = 1.00
-	     (setq power (- (length (format "%d" dec)) dp 2))  ; -2 = "1."
-	     (if (> power 0)
-		 (setq dec (* dec (expt 10 power)))
-	       nil
-	     )
-	     (setq dec (concat "." (substring (format "%d" dec) 1)))
-	     ) nil )
-  (setq dec (concat (format (concat "%0." (number-to-string ip) "d") (ftruncate value)) (if dot-index dec nil)))
-  (if (string-match "," fmt)
-      (let ((re "\\([0-9]\\)\\([0-9]\\{3\\}\\)\\([,\\.]\\)\\|\\([0-9]\\)\\([0-9][0-9][0-9]\\)$")
-	    (rep (lambda (a) (concat (match-string 1 a) (match-string 4 a) "," (match-string 5 a) (match-string 2 a) (match-string 3 a)))))
-	(while (string-match re dec)
-	  (setq dec (replace-regexp-in-string re rep dec)))
-	) nil )
-  dec))
+  (if (equal 0 (string-match "^ *\\+?-?[0-9,\\.]+ *$" val))
+      (progn
+	(let ((ip 0)   ;;int padding
+	      (dp 0)   ;;decmel padding
+	      (dr 0)   ;;decmil round
+	      (dot-index (string-match "\\." fmt))
+	      (power 0)
+	      (value (if (numberp val) val (string-to-number val)))
+	      (dec ""))
+	  (dotimes (i (or dot-index (length fmt)))
+	    (and (= (elt fmt i) (string-to-char "0")) (setq ip (1+ ip)))	    
+	    )
+	  (if dot-index
+	      (progn (dotimes (i (- (length fmt) dot-index))
+		       (and (= (elt fmt (+ i dot-index)) (string-to-char "0")) (setq dp (1+ dp)))
+		       (and (= (elt fmt (+ i dot-index)) (string-to-char "#")) (setq dr (1+ dr)))    
+		       )
+		     (setq power (+ dp dr))
+		     (setq dec  (fround (* (- (+ 1 value) (ftruncate value)) (expt 10 power))))  ;; 0.0 = 1.00
+		     (setq power (- (length (format "%d" dec)) dp 2))  ; -2 = "1."
+		     (if (> power 0)
+			 (setq dec (* dec (expt 10 power)))
+		       nil
+		       )
+		     (setq dec (concat "." (substring (format "%d" dec) 1)))
+		     ) nil )
+	  (setq dec (concat (format (concat "%0." (number-to-string ip) "d") (ftruncate value)) (if dot-index dec nil)))
+	  (if (string-match "," fmt)
+	      (let ((re "\\([0-9]\\)\\([0-9]\\{3\\}\\)\\([,\\.]\\)\\|\\([0-9]\\)\\([0-9][0-9][0-9]\\)$")
+		    (rep (lambda (a) (concat (match-string 1 a) (match-string 4 a) "," (match-string 5 a) (match-string 2 a) (match-string 3 a)))))
+		(while (string-match re dec)
+		  (setq dec (replace-regexp-in-string re rep dec)))
+		) nil )
+	  dec)) 
+    val))
 
 (defun ss-highlight (txt)
   "highlight text"
@@ -413,7 +429,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-draw-all ()
   "Populate the current ss buffer." (interactive)
   (pop-to-buffer ss-empty-name nil)
-  (debug)
+;;  (debug)
   (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
     (beginning-of-buffer)
     (erase-buffer)
@@ -606,7 +622,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
 (defun ss-add-dep (ca cc)
-  "Add to dep list."
+  "Add to dep list. 
+   CA -- addr to to add 
+   CC -- cell who depends
+"
   (let ((addr (replace-regexp-in-string "\\$" "" ca)))
   (if (string-match ss-range-parts-re addr)
 	(progn
@@ -711,7 +730,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (interactive)
   (pop-to-buffer ss-empty-name nil)
   (ss-mode)
-  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" 1)
+;;  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" 1)
   )
 
 ;;  ____        __ __  __       _   _         	
