@@ -242,7 +242,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "Try and read an XLSX file into ss-mode"
   (interactive "fFilename:")
   (let ((xml nil)
-	(sheets (list)))
+	(sheets (list))
+	(shstrs (vector)) )
     (with-temp-buffer  ;; read in the workbook file to get name/num sheets
       (erase-buffer) 
       (shell-command (concat "unzip -p " filename " xl/workbook.xml") (current-buffer))
@@ -258,12 +259,21 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (if (assoc (format "%d" idn) sheets )
 	(with-temp-buffer
 	  (erase-buffer) 
+	  (shell-command  (concat "unzip -p " filename " xl/sharedStrings.xml" )(current-buffer))
+
+	  (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
+
+	  (let ((ts (ss-xml-query (car xml) "t")) )
+	    (dolist (cell ts)
+	      (setq shstrs (vconcat shstrs (list (elt cell 2))))
+	      )))
+
+      (with-temp-buffer
+	  (erase-buffer) 
 	  (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (format "%d" idn) ".xml") (current-buffer))
 	  (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
 	  (let ((cols (ss-xml-query (car xml) "col")))
-
-	    (dolist (col cols)
-
+	    (dolist (col cols)	      
 	      (let ((max (cdr (assoc 'max (elt col 1))))
 		    (min (cdr (assoc 'min (elt col 1))))
 		    (width (cdr (assoc 'width (elt col 1))))
@@ -273,12 +283,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 		(dotimes (i (+1 (- max min)))
 		  (aset ss-col-widths (+ min i) (truncate width)))
 		)))
-
+	  
 	  (dolist (cell (ss-xml-query (car xml) "c"))
-	    (let* ((range (cdr (assoc 'r (elt cell 1) )))
-		   (value (if (< 2 (length cell)) (cddr (assoc 'v (elt cell 2) )) ""))
-		   (fmla (if (< 2 (length cell)) (cddr (assoc 'f (elt cell 2) )) "")))	      
-
+	    (debug)
+	    (let* ((range (prin1-to-string (cdr (assoc 'r (elt cell 1))) t))
+		   (value (prin1-to-string (cddr (assoc 'v cell)) t))
+		   (fmla (prin1-to-string  (cddr (assoc 'f cell)) t)))
+	      (if (string= value "nil") (setq value ""))
+	      (if (string= fmla "nil") (setq fmla ""))
+	      
 	      (string-match "\\([A-Za-z]+\\)" range)
 	      (let ((col (- (ss-addr-to-index (concat (match-string 1 range) "0")) ss-max-col)))
 		(if (<= ss-max-col col)
@@ -287,7 +300,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 						   (make-vector  (- col ss-max-col -1) 7)))
 		      (setq ss-max-col (length ss-col-widths))
 		      ) nil ))
-	(if      (string= "" fmla)
+	      
+	      (if (string= "" fmla) 
 		  (ss-update-cell range value)
 		(ss-update-cell range (concat "=" fmla)))
 	  )))
@@ -401,10 +415,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "pad a string out to center it - expects stirng, col no (int)"
   (setq s (replace-regexp-in-string "\n" " " s))
   (let ( (ll (length s) ))
-    (if (>= ll (elt ss-col-widths i))
+    (if (>= ll (- (elt ss-col-widths i) 2))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
-      (let* ( (pl (/ (- (* 2 (elt ss-col-widths i)) ll)  2))  ; half the pad length
-              (pad (make-string (- (elt ss-col-widths i) (+ pl ll)) (string-to-char " "))) )
+      (let* ( (pl (/ (- (elt ss-col-widths i) ll)  2))  ; half the pad length
+              (pad (make-string (- (elt ss-col-widths i) pl ) (string-to-char " "))) )
         (concat (make-string pl (string-to-char " ")) s pad)) )
     ))
 
@@ -412,7 +426,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "pad to the left  - expects stirng, col no (int)"
   (setq s (replace-regexp-in-string "\n" " " s))
   (let ( (ll (length s)) )
-    (if (>= ll (elt ss-col-widths i))
+    (if (>= ll (- (elt ss-col-widths i) 2))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
       (concat s (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")))
       )))
@@ -421,7 +435,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "pad to the right  - expects stirng, col no (int)"
   (setq s (replace-regexp-in-string "\n" " " s))
     (let ( (ll (length s)) )
-    (if (>= ll (elt ss-col-widths i))
+    (if (>= ll (- (elt ss-col-widths i) 2))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
       (concat (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")) s)
       )))
@@ -727,10 +741,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 \\[ss-move-up]        Moves the board to the up
 \\[ss-move-down]        Moves the board to the down
 "
-  (interactive)
-  (pop-to-buffer ss-empty-name nil)
+  (interactive)  (pop-to-buffer ss-empty-name nil)
   (ss-mode)
-;;  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" 1)
+  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" 1)
   )
 
 ;;  ____        __ __  __       _   _         	
