@@ -251,8 +251,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       )
 
     (dolist (sh (ss-xml-query (car xml) "sheet"))
-      (let (( id         (cdr (assoc 'sheetId (elt sh 1))))
-            (name                (cdr (assoc 'name (elt sh 1)))))
+      (let (( id  (cdr (assoc 'sheetId (elt sh 1))))
+            (name (cdr (assoc 'name (elt sh 1)))))
         (setq sheets (append (list (cons id name )) sheets))))
     (delq nil sheets)
 
@@ -268,6 +268,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                 ;;(setq shstrs (vconcat shstrs (list (elt cell 2))))
                 )))
 	  (setq shstrs (vconcat  (nreverse shstrs)))
+
           (with-temp-buffer
             (erase-buffer)
             (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (format "%d" idn) ".xml") (current-buffer))
@@ -283,7 +284,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                   (dotimes (i (+1 (- max min)))
                     (aset ss-col-widths (+ min i) (truncate width)))
                   )))
-
+	  (debug)
             (dolist (cell (ss-xml-query (car xml) "c"))
               (let* ((range (prin1-to-string (cdr (assoc 'r (elt cell 1))) t))
                      (value (prin1-to-string (car (cddr (assoc 'v cell))) t))
@@ -294,14 +295,16 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
                 (string-match "\\([A-Za-z]+\\)\\([0-9+]\\)" range)
                 (let ((row (string-to-int (match-string 2 range)))
-                      (col (- (ss-addr-to-index (concat (match-string 1 range) "0")) ss-max-col)))
-                  (if (< ss-max-row row) (setq ss-max-row row))
+                      (col (/ (ss-addr-to-index (concat (match-string 1 range) "0")) ss-max-col)))
+
+		  (if (<= ss-max-row row) (setq ss-max-row (+ 2 row)))		  
                   (if (<= ss-max-col col)
                       (progn
-                        (setq ss-col-widths (vconcat ss-col-widths
-                                                     (make-vector  (- col ss-max-col -1) 7)))
+                        (setq ss-col-widths (vconcat ss-col-widths (make-vector  (- col ss-max-col -1) 7)))
                         (setq ss-max-col (length ss-col-widths))
-                        ) nil ))
+                        ) nil )
+
+		  )
                 (if (string= "" fmla)
                     (ss-update-cell range value)
                   (ss-update-cell range (concat "=" fmla)))
