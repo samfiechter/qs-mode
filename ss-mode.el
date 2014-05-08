@@ -238,40 +238,48 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           ) nil )
     (delq nil match)))
 
-(defun ss-read-xlsx (filename idn )
+(defun ss-find-file (filename idn )
   "Try and read an XLSX file into ss-mode"
-  (interactive "fFilename:")
+  (interactive "FFilename:")
   (let ((xml nil)
-        (sheets (list))
-        (shstrs (list)) )
+        (sheets (list)) ;; filenames for sheets
+	(styles (list)) ;; fn for styles
+	(strings (list)) ;; fn for strings
+	(sheettype "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml")
+	(styletype "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml")
+	(stringstype "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml")
+        (shstrs (list) ))
     (with-temp-buffer  ;; read in the workbook file to get name/num sheets
       (erase-buffer)
-      (shell-command (concat "unzip -p " filename " xl/workbook.xml") (current-buffer))
+      (shell-command (concat "unzip -p " filename " \"\\[Content_Types\\].xml\"") (current-buffer))
       (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
-      )
-
-    (dolist (sh (ss-xml-query (car xml) "sheet"))
-      (let (( id  (cdr (assoc 'sheetId (elt sh 1))))
-            (name (cdr (assoc 'name (elt sh 1)))))
-        (setq sheets (append (list (cons id name )) sheets))))
-    (delq nil sheets)
-
-    (if (assoc (format "%d" idn) sheets )
+    (dolist (sh (ss-xml-query (car xml) "Override"))
+      (let ((type (cdr (assoc 'ContentType (elt sh 1))))
+            (name (cdr (assoc 'PartName (elt sh 1)))))
+	(if (string= type sheettype) (push name sheets))
+	(if (string= type styletype) (push name styles))
+	(if (string= type stringstype) (push name strings))
+	)))
+    (setq sheets (vconcat (nreverse sheets)))
+    (setq styles (nreverse styles))
+    (setq strings (nreverse strings))
+    (if (<= (string-to-int idn) (length sheets) )
         (progn
+	  (dolist (stringfn strings)
           (with-temp-buffer
             (erase-buffer)
-            (shell-command  (concat "unzip -p " filename " xl/sharedStrings.xml" )(current-buffer))
+	    (shell-command (concat "unzip -p " filename " " (substring stringfn 1)) (current-buffer))
             (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
             (let ((ts (ss-xml-query (car xml) "t")) )
               (dolist (cell ts)
 		(push (elt cell 2) shstrs)
-                ;;(setq shstrs (vconcat shstrs (list (elt cell 2))))
-                )))
+                ))))
 	  (setq shstrs (vconcat  (nreverse shstrs)))
-
+	  ;; load styles...
+;;	  (debug)
           (with-temp-buffer
             (erase-buffer)
-            (shell-command (concat "unzip -p " filename " xl/worksheets/sheet" (format "%d" idn) ".xml") (current-buffer))
+            (shell-command (concat "unzip -p " filename " " (substring (elt sheets (string-to-int idn)) 1)) (current-buffer))
             (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
             (let ((cols (ss-xml-query (car xml) "col")))
               (dolist (col cols)
@@ -284,7 +292,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                   (dotimes (i (+1 (- max min)))
                     (aset ss-col-widths (+ min i) (truncate width)))
                   )))
-	  (debug)
             (dolist (cell (ss-xml-query (car xml) "c"))
               (let* ((range (prin1-to-string (cdr (assoc 'r (elt cell 1))) t))
                      (value (prin1-to-string (car (cddr (assoc 'v cell))) t))
@@ -300,7 +307,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 		  (if (<= ss-max-row row) (setq ss-max-row (+ 2 row)))		  
                   (if (<= ss-max-col col)
                       (progn
-                        (setq ss-col-widths (vconcat ss-col-widths (make-vector  (- col ss-max-col -1) 7)))
+                        (setq ss-col-widths (vconcat ss-col-widths (make-vector  (- col ss-max-col ) 7)))
                         (setq ss-max-col (length ss-col-widths))
                         ) nil )
 
@@ -308,11 +315,11 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                 (if (string= "" fmla)
                     (ss-update-cell range value)
                   (ss-update-cell range (concat "=" fmla)))
-                ))))
+                )))
+	  (ss-draw-all)
+	  )
       (throw "error" (concat "Sheet Number No sheet" idn ".xml in " filename))
-      ))
-  (ss-draw-all)
-  )
+      )))
 
 (defun ss-import-csv (filename)
   "Read a CSV file into ss-mode"
@@ -747,7 +754,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 "
   (interactive)  (pop-to-buffer ss-empty-name nil)
   (ss-mode)
-  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" 1)
+;;  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" "0")
   )
 
 ;;  ____        __ __  __       _   _
