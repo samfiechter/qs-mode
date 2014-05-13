@@ -80,8 +80,8 @@
 ;;
 
 (defun ss-new-cell (addr) "Blank cell"
-       (vector addr "" "" ss-default-number-fmt "" (list) )
-       )
+  (vector addr "" "" ss-default-number-fmt "" (list) )
+  )
 
 (defun ss-transform-fmla (from to fun)
   "transform a function from from to to moving all addresses relative to the addresses
@@ -129,6 +129,17 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
              (col (- (/ (- idx row) ss-max-row) 1)))
         (concat (ss-col-letter col) (int-to-string row))
         ) "A1") )
+
+(defun ss-col-number (a)
+  "returns the index of a column id -- expects letters"
+  (let ((chra (- (string-to-char "A") 1))
+        (lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
+        (out 0) (i 0))
+    (while (and  (< i (length a)) (< chra (elt a i)))
+      (setq out (+ (* 26 out)  (- (logand lcmask (elt a i)) chra))) ;; -33 is mask to change case
+      (setq i (+ 1 i)))
+    out
+    ))
 
 (defun ss-col-letter (a)
   "returns the letter of the column id arg -- expects int"
@@ -238,45 +249,56 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           ) nil )
     (delq nil match)))
 
-(defun ss-find-file (filename idn )
-  "Try and read an XLSX file into ss-mode"
+(defun ss-load (filename)
+  "Load a file into the Spreadsheet."
   (interactive "FFilename:")
+  (let ((patterns (list (cons "\\.\\(xlsx\\|XLSX\\)$" 'ss-load-xlsx)
+                        (cons "\\.\\(csv\\|CSV\\)$" 'ss-load-csv)
+                        )))
+    (dolist (e patterns)
+      (if (string-match-p (car e) filename)
+          (eval (list (cdr e) filename))
+        nil) )))
+
+(defun ss-load-xlsx (filename )
+  "Try and read an XLSX file into ss-mode"
   (let ((xml nil)
+        (idn "0")
         (sheets (list)) ;; filenames for sheets
-	(styles (list)) ;; fn for styles
-	(strings (list)) ;; fn for strings
-	(sheettype "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml")
-	(styletype "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml")
-	(stringstype "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml")
+        (styles (list)) ;; fn for styles
+        (strings (list)) ;; fn for strings
+        (sheettype "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml")
+        (styletype "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml")
+        (stringstype "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml")
         (shstrs (list) ))
     (with-temp-buffer  ;; read in the workbook file to get name/num sheets
       (erase-buffer)
       (shell-command (concat "unzip -p " filename " \"\\[Content_Types\\].xml\"") (current-buffer))
       (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
-    (dolist (sh (ss-xml-query (car xml) "Override"))
-      (let ((type (cdr (assoc 'ContentType (elt sh 1))))
-            (name (cdr (assoc 'PartName (elt sh 1)))))
-	(if (string= type sheettype) (push name sheets))
-	(if (string= type styletype) (push name styles))
-	(if (string= type stringstype) (push name strings))
-	)))
+      (dolist (sh (ss-xml-query (car xml) "Override"))
+        (let ((type (cdr (assoc 'ContentType (elt sh 1))))
+              (name (cdr (assoc 'PartName (elt sh 1)))))
+          (if (string= type sheettype) (push name sheets))
+          (if (string= type styletype) (push name styles))
+          (if (string= type stringstype) (push name strings))
+          )))
     (setq sheets (vconcat (nreverse sheets)))
     (setq styles (nreverse styles))
     (setq strings (nreverse strings))
     (if (<= (string-to-int idn) (length sheets) )
         (progn
-	  (dolist (stringfn strings)
-          (with-temp-buffer
-            (erase-buffer)
-	    (shell-command (concat "unzip -p " filename " " (substring stringfn 1)) (current-buffer))
-            (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
-            (let ((ts (ss-xml-query (car xml) "t")) )
-              (dolist (cell ts)
-		(push (elt cell 2) shstrs)
-                ))))
-	  (setq shstrs (vconcat  (nreverse shstrs)))
-	  ;; load styles...
-;;	  (debug)
+          (dolist (stringfn strings)
+            (with-temp-buffer
+              (erase-buffer)
+              (shell-command (concat "unzip -p " filename " " (substring stringfn 1)) (current-buffer))
+              (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
+              (let ((ts (ss-xml-query (car xml) "t")) )
+                (dolist (cell ts)
+                  (push (elt cell 2) shstrs)
+                  ))))
+          (setq shstrs (vconcat  (nreverse shstrs)))
+          ;; load styles...
+          ;;    (debug)
           (with-temp-buffer
             (erase-buffer)
             (shell-command (concat "unzip -p " filename " " (substring (elt sheets (string-to-int idn)) 1)) (current-buffer))
@@ -297,31 +319,31 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                      (value (prin1-to-string (car (cddr (assoc 'v cell))) t))
                      (fmla (prin1-to-string  (car (cddr (assoc 'f cell))) t)))
                 (if (string= value "nil") (setq value ""))
-		(if (string= "s" (cdr (assoc 't (elt cell 1)))) (setq value (elt shstrs (string-to-int value))))
+                (if (string= "s" (cdr (assoc 't (elt cell 1)))) (setq value (elt shstrs (string-to-int value))))
                 (if (string= fmla "nil") (setq fmla ""))
 
                 (string-match "\\([A-Za-z]+\\)\\([0-9+]\\)" range)
                 (let ((row (string-to-int (match-string 2 range)))
                       (col (/ (ss-addr-to-index (concat (match-string 1 range) "0")) ss-max-col)))
 
-		  (if (<= ss-max-row row) (setq ss-max-row (+ 2 row)))		  
+                  (if (<= ss-max-row row) (setq ss-max-row (+ 2 row)))
                   (if (<= ss-max-col col)
                       (progn
                         (setq ss-col-widths (vconcat ss-col-widths (make-vector  (- col ss-max-col ) 7)))
                         (setq ss-max-col (length ss-col-widths))
                         ) nil )
 
-		  )
+                  )
                 (if (string= "" fmla)
                     (ss-update-cell range value)
                   (ss-update-cell range (concat "=" fmla)))
                 )))
-	  (ss-draw-all)
-	  )
+          (ss-draw-all)
+          )
       (throw "error" (concat "Sheet Number No sheet" idn ".xml in " filename))
       )))
 
-(defun ss-import-csv (filename)
+(defun ss-load-csv (filename)
   "Read a CSV file into ss-mode"
   (interactive "fFilename:")
   (let ((mybuff (current-buffer))
@@ -379,6 +401,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
 #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
 0.00## -- Round to four digits, and pad out to at least two."
+  (if (stringp val) nil (setq val (number-to-string val)))
   (if (equal 0 (string-match "^ *\\+?-?[0-9,\\.]+ *$" val))
       (progn
         (let ((ip 0)   ;;int padding
@@ -453,7 +476,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-draw-all ()
   "Populate the current ss buffer." (interactive)
-  (pop-to-buffer ss-empty-name nil)
+  ;;  (pop-to-buffer ss-empty-name nil)
   ;;  (debug)
   (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
     (beginning-of-buffer)
@@ -480,7 +503,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-draw-cell (x y text)
   "redraw one cell on the ss  - expects  col no. (int), row no, (int), cell value (padded string)"
   (let ((col ss-row-padding) (i 0))
-    (pop-to-buffer ss-empty-name nil)
+    ;;    (pop-to-buffer ss-empty-name nil)
     (setq cursor-type nil)  ;; no cursor
     (setq truncate-lines 1)  ;; no wrap-around
     (dotimes (i x)
@@ -530,21 +553,21 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       )))
 
 (defun ss-move-cur-cell (x y) (interactive)
-       (let* ((new-row (+ ss-cur-row y))
-              (new-col (+ ss-cur-col x))
-              (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
-              (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
-              (ot (if m (elt m ss-c-fmtd) ""))
-              (nt (if n (elt n ss-c-fmtd) "")))
-         (progn
-           (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
-           (setq ss-cur-row new-row)
-           (setq ss-cur-col new-col)
+  (let* ((new-row (+ ss-cur-row y))
+         (new-col (+ ss-cur-col x))
+         (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
+         (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
+         (ot (if m (elt m ss-c-fmtd) ""))
+         (nt (if n (elt n ss-c-fmtd) "")))
+    (progn
+      (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
+      (setq ss-cur-row new-row)
+      (setq ss-cur-col new-col)
 
-           (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
-           (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
-                                       " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
-           )))
+      (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
+      (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
+                                  " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
+      )))
 
 
 (defun ss-increase-cur-col ()
@@ -710,6 +733,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           nil) ))))
 
 
+
+;;;###autoload
 (define-derived-mode ss-mode text-mode ss-empty-name
   "ss game mode
   Keybindings:
@@ -725,8 +750,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   ;;           ))
 
 
+  (erase-buffer)  ;; don't show text...
 
-  (pop-to-buffer ss-empty-name nil)
+  (if (file-exists-p (buffer-file-name)) (ss-load (buffer-file-name)) nil)
   (setq ss-cur-col 0)
   (setq ss-max-col 3)
   (setq ss-col-widths (make-vector ss-max-col 7))
@@ -738,23 +764,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
   (ss-draw-all)
 
-  )
-
-;;;###autoload
-(defun ss-mode-open ()
-  "Open SS mode
-     ss keybindings:
-     \\<ss-mode-map>
-\\[ss-start-game]        Start a new game
-\\[ss-end-game]        Terminate the current game
-\\[ss-move-left]        Moves the board to the left
-\\[ss-move-right]        Moves the board to the right
-\\[ss-move-up]        Moves the board to the up
-\\[ss-move-down]        Moves the board to the down
-"
-  (interactive)  (pop-to-buffer ss-empty-name nil)
-  (ss-mode)
-;;  (ss-read-xlsx "/home/sam/GE-COMP.xlsx" "0")
   )
 
 ;;  ____        __ __  __       _   _
@@ -772,5 +781,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
 (provide 'ss-mode)
+(push (cons "\\.\\(xlsx\\|XLSX\\)$" 'ss-mode) auto-mode-alist)
+(push (cons "\\.\\(csv\\|CSV\\)$" 'ss-mode) auto-mode-alist)
 
-;;; ss-mode.el ends here
+;;; ss-mode.el enxds here
