@@ -80,8 +80,8 @@
 ;;
 
 (defun ss-new-cell (addr) "Blank cell"
-  (vector addr "" "" ss-default-number-fmt "" (list) )
-  )
+       (vector addr "" "" ss-default-number-fmt "" (list) )
+       )
 
 (defun ss-transform-fmla (from to fun)
   "transform a function from from to to moving all addresses relative to the addresses
@@ -138,7 +138,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (while (and  (< i (length a)) (< chra (elt a i)))
       (setq out (+ (* 26 out)  (- (logand lcmask (elt a i)) chra))) ;; -33 is mask to change case
       (setq i (+ 1 i)))
-    out
     ))
 
 (defun ss-col-letter (a)
@@ -271,6 +270,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (styletype "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml")
         (stringstype "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml")
         (shstrs (list) ))
+
     (with-temp-buffer  ;; read in the workbook file to get name/num sheets
       (erase-buffer)
       (shell-command (concat "unzip -p " filename " \"\\[Content_Types\\].xml\"") (current-buffer))
@@ -282,6 +282,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (if (string= type styletype) (push name styles))
           (if (string= type stringstype) (push name strings))
           )))
+
     (setq sheets (vconcat (nreverse sheets)))
     (setq styles (nreverse styles))
     (setq strings (nreverse strings))
@@ -318,22 +319,21 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
               (let* ((range (prin1-to-string (cdr (assoc 'r (elt cell 1))) t))
                      (value (prin1-to-string (car (cddr (assoc 'v cell))) t))
                      (fmla (prin1-to-string  (car (cddr (assoc 'f cell))) t)))
+
                 (if (string= value "nil") (setq value ""))
                 (if (string= "s" (cdr (assoc 't (elt cell 1)))) (setq value (elt shstrs (string-to-int value))))
                 (if (string= fmla "nil") (setq fmla ""))
-
-                (string-match "\\([A-Za-z]+\\)\\([0-9+]\\)" range)
-                (let ((row (string-to-int (match-string 2 range)))
-                      (col (/ (ss-addr-to-index (concat (match-string 1 range) "0")) ss-max-col)))
-
-                  (if (<= ss-max-row row) (setq ss-max-row (+ 2 row)))
-                  (if (<= ss-max-col col)
-                      (progn
-                        (setq ss-col-widths (vconcat ss-col-widths (make-vector  (- col ss-max-col ) 7)))
-                        (setq ss-max-col (length ss-col-widths))
-                        ) nil )
-
-                  )
+                (debug)
+                (if (string-match "\\([A-Za-z]+\\)\\([0-9+]\\)" range)
+                    (let ((row (string-to-int (match-string 2 range)))
+                          (col (ss-col-number (match-string 1 range))))
+                      (if (<= ss-max-row row) (setq ss-max-row (+ 2 row)))
+                      (if (<= ss-max-col col)
+                          (progn
+                            (setq ss-col-widths (vconcat ss-col-widths (make-vector  (- col ss-max-col ) 7)))
+                            (setq ss-max-col (length ss-col-widths))
+                            ) nil )
+                      ) nil)
                 (if (string= "" fmla)
                     (ss-update-cell range value)
                   (ss-update-cell range (concat "=" fmla)))
@@ -452,7 +452,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (if (>= ll (- (elt ss-col-widths i) 2))
         (make-string (elt ss-col-widths i) (string-to-char "#"))
       (let* ( (pl (/ (- (elt ss-col-widths i) ll)  2))  ; half the pad length
-              (pad (make-string (- (elt ss-col-widths i) pl ) (string-to-char " "))) )
+              (pad (make-string (- (elt ss-col-widths i) pl 1 ) (string-to-char " "))) )
         (concat (make-string pl (string-to-char " ")) s pad)) )
     ))
 
@@ -482,7 +482,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (beginning-of-buffer)
     (erase-buffer)
     (dotimes (i ss-max-col)  ;; make header
-      (setq header (concat header (ss-pad-center (ss-col-letter i) i))))
+      (setq header (concat header (ss-pad-right (ss-col-letter i) i))))
     (dotimes (j ss-max-row) ;; draw buffer
       (if (= 0 j)
           (insert  (ss-highlight header))
@@ -553,21 +553,21 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       )))
 
 (defun ss-move-cur-cell (x y) (interactive)
-  (let* ((new-row (+ ss-cur-row y))
-         (new-col (+ ss-cur-col x))
-         (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
-         (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
-         (ot (if m (elt m ss-c-fmtd) ""))
-         (nt (if n (elt n ss-c-fmtd) "")))
-    (progn
-      (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
-      (setq ss-cur-row new-row)
-      (setq ss-cur-col new-col)
+       (let* ((new-row (+ ss-cur-row y))
+              (new-col (+ ss-cur-col x))
+              (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
+              (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
+              (ot (if m (elt m ss-c-fmtd) ""))
+              (nt (if n (elt n ss-c-fmtd) "")))
+         (progn
+           (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
+           (setq ss-cur-row new-row)
+           (setq ss-cur-col new-col)
 
-      (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
-      (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
-                                  " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
-      )))
+           (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
+           (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
+                                       " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
+           )))
 
 
 (defun ss-increase-cur-col ()
