@@ -27,6 +27,7 @@
 (defvar ss-cur-row 1)
 (defvar ss-max-row 3)
 (defvar ss-row-padding 4)
+(defvar ss-sheets (list )) ;; list of ss-data
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
 (defvar ss-range-parts-re "\\([A-Za-z]+\\)\\([0-9]+\\)\\:\\([A-Za-z]+\\)\\([0-9]+\\)")
 (defvar ss-one-cell-re "$?[A-Za-z]+$?[0-9]+")
@@ -262,7 +263,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-load-xlsx (filename )
   "Try and read an XLSX file into ss-mode"
   (let ((xml nil)
-        (idn "0")
         (sheets (list)) ;; filenames for sheets
         (styles (list)) ;; fn for styles
         (strings (list)) ;; fn for strings
@@ -286,8 +286,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (setq sheets (vconcat (nreverse sheets)))
     (setq styles (nreverse styles))
     (setq strings (nreverse strings))
-    (if (<= (string-to-int idn) (length sheets) )
-        (progn
+    (dolist (sfn sheets)
+
           (dolist (stringfn strings)
             (with-temp-buffer
               (erase-buffer)
@@ -299,18 +299,20 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                   ))))
           (setq shstrs (vconcat  (nreverse shstrs)))
           ;; load styles...
-          ;;    (debug)
           (with-temp-buffer
             (erase-buffer)
-            (shell-command (concat "unzip -p " filename " " (substring (elt sheets (string-to-int idn)) 1)) (current-buffer))
+            (shell-command (concat "unzip -p " filename " " (substring sfn 1)) (current-buffer))
             (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
-            (let ((cols (ss-xml-query (car xml) "col")))
+            (let ((sheet (avl-tree--create))
+		  (cols (ss-xml-query (car xml) "col")))
+	      (push ss-sheets sheet)
+	      (setq ss-data sheet)
               (dolist (col cols)
-                (let ((max (cdr (assoc 'max (elt col 1))))
-                      (min (cdr (assoc 'min (elt col 1))))
+                (let ((max (string-to-int (cdr (assoc 'max (elt col 1)))))
+                      (min (string-to-int (cdr (assoc 'min (elt col 1)))))
                       (width (cdr (assoc 'width (elt col 1))))
                       (len (length ss-col-widths)) )
-                  (if (< len max)
+                  (if (< len  max)
                       (setq ss-col-widths (vconcat ss-col-widths (make-vector (- max len) (truncate width)))) nil )
                   (dotimes (i (+1 (- max min)))
                     (aset ss-col-widths (+ min i) (truncate width)))
@@ -323,7 +325,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                 (if (string= value "nil") (setq value ""))
                 (if (string= "s" (cdr (assoc 't (elt cell 1)))) (setq value (elt shstrs (string-to-int value))))
                 (if (string= fmla "nil") (setq fmla ""))
-                (debug)
+
                 (if (string-match "\\([A-Za-z]+\\)\\([0-9+]\\)" range)
                     (let ((row (string-to-int (match-string 2 range)))
                           (col (ss-col-number (match-string 1 range))))
@@ -337,11 +339,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                 (if (string= "" fmla)
                     (ss-update-cell range value)
                   (ss-update-cell range (concat "=" fmla)))
-                )))
-          (ss-draw-all)
-          )
-      (throw "error" (concat "Sheet Number No sheet" idn ".xml in " filename))
-      )))
+                ))))
+    (setq ss-data (car sheets))
+    (ss-draw-all)
+      ))
 
 (defun ss-load-csv (filename)
   "Read a CSV file into ss-mode"
@@ -751,8 +752,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
   (erase-buffer)  ;; don't show text...
-
-  (if (file-exists-p (buffer-file-name)) (ss-load (buffer-file-name)) nil)
   (setq ss-cur-col 0)
   (setq ss-max-col 3)
   (setq ss-col-widths (make-vector ss-max-col 7))
@@ -760,7 +759,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (setq ss-max-row 3)
   (setq ss-row-padding 4)
   (setq ss-data (avl-tree-create 'ss-avl-cmp))
-
+  (if (file-exists-p (buffer-file-name)) (ss-load (buffer-file-name)) nil)
 
   (ss-draw-all)
 
