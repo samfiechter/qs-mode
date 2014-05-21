@@ -350,13 +350,13 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (let ((mybuff (current-buffer))
         (cc ss-cur-col)
         (cr ss-cur-row))
-
-    (with-temp-buffers
+    
+    (with-temp-buffer
      (insert-file-contents filename)
      (beginning-of-buffer)
      (let ((x 0) (cell "") (cl ss-cur-col)
            (rw ss-cur-row) (j 0)
-           (re ",?\"\\([^\"]+\\)\"[\n,]\\|,?\\([^,]+\\)[\n,]")
+           (re ",?\\(\"\\([^\"]+\\)\"\\|\\([^,]+\\)\\),?")
            (newline ""))
        (while (not (eobp))
          (setq newline (thing-at-point 'line))
@@ -751,7 +751,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   ;;           ))
 
 
-  (erase-buffer)  ;; don't show text...
+
   (setq ss-cur-col 0)
   (setq ss-max-col 3)
   (setq ss-col-widths (make-vector ss-max-col 7))
