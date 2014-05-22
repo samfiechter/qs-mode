@@ -17,27 +17,13 @@
 ;;;Code
 (require 'avl-tree)
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defvar ss-empty-name "*Sams Spreadsheet Mode*")
-
-(defvar ss-cur-col 0)
-(defvar ss-max-col 3)
-(defvar ss-col-widths (make-vector ss-max-col 7))
-
-(defvar ss-cur-row 1)
-(defvar ss-max-row 3)
-(defvar ss-row-padding 4)
-(defvar ss-sheets (list )) ;; list of ss-data
-(defvar ss-data (avl-tree-create 'ss-avl-cmp))
+;; pseudo constants
 (defvar ss-range-parts-re "\\([A-Za-z]+\\)\\([0-9]+\\)\\:\\([A-Za-z]+\\)\\([0-9]+\\)")
 (defvar ss-one-cell-re "$?[A-Za-z]+$?[0-9]+")
 (defvar ss-range-re "$?[A-Za-z]+$?[0-9]+\\:$?[A-Za-z]+$?[0-9]+")
 (defvar ss-cell-or-range-re (concat "[^A-Za-z0-9]?\\(" ss-range-re  "\\|" ss-one-cell-re  "\\)[^A-Za-z0-9\(]?"))
+(defvar ss-empty-name "*Sams Spreadsheet Mode*")
 
-(defvar ss-default-number-fmt ",0.00")
-
-(defvar ss-input-history (list ))
-(defvar ss-format-history (list ))
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
 (defvar ss-c-addr 0)
@@ -51,6 +37,24 @@
 (defvar ss-c-fmla 4)
 ;;   5 = depends on -- list of indexes
 (defvar ss-c-deps 5)
+
+
+;; status vars
+(defvar ss-cur-col 0)
+(defvar ss-max-col 3)
+(defvar ss-col-widths (make-vector ss-max-col 7))
+(defvar ss-mark-cell nil)
+(defvar ss-cur-row 1)
+(defvar ss-max-row 3)
+(defvar ss-row-padding 4)
+(defvar ss-sheets (list )) ;; list of ss-data
+(defvar ss-data (avl-tree-create 'ss-avl-cmp))
+(defvar ss-default-number-fmt ",0.00")
+
+
+;;other 
+(defvar ss-input-history (list ))
+(defvar ss-format-history (list ))
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar ss-map  (make-sparse-keymap 'ss-map))
