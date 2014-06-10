@@ -1,11 +1,3 @@
-;;                                          _            _
-;;        ___ ___       _ __ ___   ___   __| | ___   ___| |
-;;       / __/ __|_____| '_ ` _ \ / _ \ / _` |/ _ \ / _ \ |
-;;       \__ \__ \_____| | | | | | (_) | (_| |  __/|  __/ |
-;;       |___/___/     |_| |_| |_|\___/ \__,_|\___(_)___|_|
-
-
-
 ;;; ss-mode -- Spreadsheet Mode -- Tabular interface to Calc
 ;; Copyright (C) 2014 -- Use at 'yer own risk  -- NO WARRANTY!
 ;; Author: sam fiechter sam.fiechter(at)gmail
@@ -67,11 +59,12 @@
 (define-key ss-map [down]       'ss-move-down)
 (define-key ss-map [return]     'ss-edit-cell)
 (define-key ss-map [backspace]  'ss-clear-key)
+(define-key ss-map [remap set-mark-command] 'ss-set-mark)
 (define-key ss-map [remap self-insert-command] 'ss-edit-cell)
 (define-key ss-map (kbd "C-x f") 'ss-edit-format)
 
 ;;(define-key ss-map [C-R]        'ss-search-buffer)
-                                        ;(define-key ss-map (kbd "RET")        'ss-edit-cell)
+
 (define-key ss-map (kbd "+")  'ss-increase-cur-col )
 (define-key ss-map (kbd "-")  'ss-decrease-cur-col )
 
@@ -105,6 +98,11 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (substring s 1 -1)
     ))
 
+(defun ss-clear-key () "delete current cell" (interactive)
+(let  (  (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))))
+  (if  (avl-tree-delete ss-data current-cell)
+    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right "" ss-cur-col) ))
+     nil) ))
 
 (defun ss-avl-cmp (a b)
   "This is the function used by avl tree to compare ss addresses"
@@ -169,6 +167,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (setq m (ss-new-cell current-cell))
         (aset m ss-c-fmla nt)))))
 
+(defun ss-set-mark () "set the mark to the current cell" (interactive)
+       (setq ss-mark-cell ss-current-cell))
 
 (defun ss-edit-cell ( )
   "edit the selected cell"
@@ -307,7 +307,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             (erase-buffer)
             (shell-command (concat "unzip -p " filename " " (substring sfn 1)) (current-buffer))
             (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
-            (let ((sheet (avl-tree--create))
+            (let ((sheet (avl-tree-create 'ss-avl-cmp))
 		  (cols (ss-xml-query (car xml) "col")))
 	      (push ss-sheets sheet)
 	      (setq ss-data sheet)
@@ -360,7 +360,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
      (beginning-of-buffer)
      (let ((x 0) (cell "") (cl ss-cur-col)
            (rw ss-cur-row) (j 0)
-           (re ",?\\(\"\\([^\"]+\\)\"\\|\\([^,]+\\)\\),?")
+           (re ",?\\(\"\\(\\(\"\"\\|[|^\"]\\)+\\)\"\\|\\([^,]+\\)\\),?")
            (newline ""))
        (while (not (eobp))
          (setq newline (thing-at-point 'line))
