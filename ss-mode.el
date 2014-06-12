@@ -101,7 +101,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-clear-key () "delete current cell" (interactive)
 (let  (  (current-cell (concat (ss-col-letter ss-cur-col) (int-to-string ss-cur-row))))
   (if  (avl-tree-delete ss-data current-cell)
-    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right "" ss-cur-col) ))
+    (ss-draw-cell ss-cur-col ss-cur-row (ss-pad-right "" ss-cur-col))
      nil) ))
 
 (defun ss-avl-cmp (a b)
@@ -110,8 +110,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (< (ss-addr-to-index A) (ss-addr-to-index B)) ))
 
 
-(defun ss-addr-to-index (a)
-  "Convert from ss addr (e.g. A1) to index  -- expects [A-Z]+[0-9]+"
+(defun ss-addr-to-index (a)  "Convert from ss addr (e.g. A1) to index  -- expects [A-Z]+[0-9]+"
   (let ((chra (- (string-to-char "A") 1))
         (lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
         )
@@ -238,7 +237,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (ss-eval-chain a current-cell)))
 
     ;;draw it
-    (ss-draw-cell ss-cur-col ss-cur-row (ss-highlight (ss-pad-right (elt m ss-c-fmtd) ss-cur-col) ))
+    (ss-draw-cell ss-cur-col ss-cur-row (ss-pad-right (elt m ss-c-fmtd) ss-cur-col))
     ))
 
 
@@ -406,7 +405,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
 #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
 0.00## -- Round to four digits, and pad out to at least two."
-  (if (stringp val) nil (setq val (number-to-string val)))
+  (if (numberp val) (setq val (format "%s" val)) nil )
   (if (equal 0 (string-match "^ *\\+?-?[0-9,\\.]+ *$" val))
       (progn
         (let ((ip 0)   ;;int padding
@@ -445,10 +444,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-highlight (txt)
   "highlight text"
-
   (let ((myface '((:foreground "White") (:background "Blue"))))
     (propertize txt 'font-lock-face myface)))
-;;  (concat ">" txt "<"))
 
 (defun ss-pad-center (s i)
   "pad a string out to center it - expects stirng, col no (int)"
@@ -487,7 +484,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
     (beginning-of-buffer)
     (erase-buffer)
-    (dotimes (i (- ss-max-col 1))  ;; make header
+    (dotimes (i ss-max-col)  ;; make header
       (setq header (concat header (ss-pad-right (ss-col-letter i) i))))
     (dotimes (j ss-max-row) ;; draw buffer
       (if (= 0 j)
@@ -533,14 +530,13 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun ss-move-right ()
   (interactive)
 ;  (debug)
-  (if (<= ss-cur-col (- ss-max-col 3))
+  (if (< ss-cur-col (- ss-max-col 1))
       (ss-move-cur-cell 1 0)
     (progn
       (setq ss-max-col (+ 1 ss-max-col))
       (setq ss-col-widths   (vconcat ss-col-widths (list (elt ss-col-widths ss-cur-col))))
       (setq ss-cur-col (+ 1 ss-cur-col))
       (ss-draw-all)
-      (ss-move-cur-cell 1 0)
       )))
 
 (defun ss-move-up ()
@@ -557,24 +553,26 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (setq ss-max-row (+ 1 ss-max-row))
       (setq ss-cur-row (+ 1 ss-cur-row))
       (ss-draw-all)
-      (ss-move-cur-cell 1 0)
       )))
 
 (defun ss-move-cur-cell (x y) (interactive)
   "Move the cursor or selection overaly"
-
+  (goto-char 0)
   (let* ((new-row (+ ss-cur-row y))
 	 (new-col (+ ss-cur-col x))
 	 (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ 1 new-col)))))
-	 (row-pos (line-beginning-position (- (line-number-at-pos) new-row)))
-	 (col-pos (apply '+ (mapcar (lambda (x) (elt ss-col-widths x)) (number-sequence 0 new-col))))) ;; add col-widts b/t 0 and col
+	 (row-pos (line-beginning-position (+ 1 new-row)))
+	 (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt ss-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) ) ;; add col-widts b/t 0 and col
+;    (debug)
     (if (overlayp ss-cursor)
-	(move-overlay ss-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt ss-col-widths (+ 1 new-col))))
+	(move-overlay ss-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt ss-col-widths new-col)))
       (progn
 ;;	(debug)
-	(setq ss-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt ss-col-widths (+ 1 new-col)))))
-	(overlay-put ss-cursor 'face '((:foreground "White") (:background "Blue")))
+	(setq ss-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt ss-col-widths  new-col))))
+
 	))
+    (goto-char (+ row-pos col-pos))
+    (overlay-put ss-cursor 'face '((:foreground "White") (:background "Blue")))
     (setq ss-cur-row new-row)
     (setq ss-cur-col new-col)
     (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
