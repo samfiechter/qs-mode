@@ -209,13 +209,14 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
               ))
 
           (let ((s (concat nt " ")) (deps (list)))
-
             (setq s (replace-regexp-in-string ss-cell-or-range-re (lambda (str)
+								    (save-match-data
                                                                     (let ((addr (match-string 1 str)))
                                                                       (push addr deps)
-                                                                      (ss-cell-val addr))) s nil nil 1))
+                                                                      (ss-cell-val addr)))) s nil nil 1))
             (dolist (dep deps)
               (ss-add-dep dep current-cell))
+
             (setq nt (calc-eval (substring s 1 -1 ) ))  ;; throw away = and  ' '
             ))
       (if m (aset m ss-c-fmla "") nil))
@@ -405,7 +406,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
 #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
 0.00## -- Round to four digits, and pad out to at least two."
-  (if (numberp val) (setq val (format "%s" val)) nil )
+  (if (stringp val) nil (setq val (format "%s" val)))
   (if (equal 0 (string-match "^ *\\+?-?[0-9,\\.]+ *$" val))
       (progn
         (let ((ip 0)   ;;int padding
@@ -435,7 +436,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (setq dec (concat (format (concat "%0." (number-to-string ip) "d") (ftruncate value)) (if dot-index dec nil)))
           (if (string-match "," fmt)
               (let ((re "\\([0-9]\\)\\([0-9]\\{3\\}\\)\\([,\\.]\\)\\|\\([0-9]\\)\\([0-9][0-9][0-9]\\)$")
-                    (rep (lambda (a) (concat (match-string 1 a) (match-string 4 a) "," (match-string 5 a) (match-string 2 a) (match-string 3 a)))))
+                    (rep (lambda (a) (save-match-data (concat (match-string 1 a) (match-string 4 a) "," (match-string 5 a) (match-string 2 a) (match-string 3 a))))))
                 (while (string-match re dec)
                   (setq dec (replace-regexp-in-string re rep dec)))
                 ) nil )
@@ -784,7 +785,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defmath SUM ( x)
   "add the items in the range"
   (interactive 1 "sum")
-  :" vflat(x) * ((vflat(x) * 0 ) + 1)"
+  :" vsum(x)"
 
   )
 
