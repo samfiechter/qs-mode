@@ -42,7 +42,7 @@
 (defvar ss-sheets (list )) ;; list of ss-data
 (defvar ss-data (avl-tree-create 'ss-avl-cmp))
 (defvar ss-default-number-fmt ",0.00")
-
+(defvar ss-cursor nil)
 
 ;;other 
 (defvar ss-input-history (list ))
@@ -479,14 +479,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (concat (make-string (- (elt ss-col-widths i)  ll) (string-to-char " ")) s)
       )))
 
+
 (defun ss-draw-all ()
   "Populate the current ss buffer." (interactive)
   ;;  (pop-to-buffer ss-empty-name nil)
-  ;;  (debug)
+
   (let ((i 0) (j 0) (k 0) (header (make-string ss-row-padding (string-to-char " "))))
     (beginning-of-buffer)
     (erase-buffer)
-    (dotimes (i ss-max-col)  ;; make header
+    (dotimes (i (- ss-max-col 1))  ;; make header
       (setq header (concat header (ss-pad-right (ss-col-letter i) i))))
     (dotimes (j ss-max-row) ;; draw buffer
       (if (= 0 j)
@@ -511,8 +512,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     ;;    (pop-to-buffer ss-empty-name nil)
     (setq cursor-type nil)  ;; no cursor
     (setq truncate-lines 1)  ;; no wrap-around
-    (dotimes (i x)
-      (setq col (+ col (elt ss-col-widths i))) )
+
+    (dotimes (i x) (setq col (+ col (elt ss-col-widths i))) )
     (goto-line (+ y 1))
     (move-to-column col)
 
@@ -531,14 +532,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun ss-move-right ()
   (interactive)
-
-  (if (< ss-cur-col (- ss-max-col 1))
+;  (debug)
+  (if (<= ss-cur-col (- ss-max-col 3))
       (ss-move-cur-cell 1 0)
     (progn
       (setq ss-max-col (+ 1 ss-max-col))
       (setq ss-col-widths   (vconcat ss-col-widths (list (elt ss-col-widths ss-cur-col))))
       (setq ss-cur-col (+ 1 ss-cur-col))
       (ss-draw-all)
+      (ss-move-cur-cell 1 0)
       )))
 
 (defun ss-move-up ()
@@ -555,24 +557,30 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (setq ss-max-row (+ 1 ss-max-row))
       (setq ss-cur-row (+ 1 ss-cur-row))
       (ss-draw-all)
+      (ss-move-cur-cell 1 0)
       )))
 
 (defun ss-move-cur-cell (x y) (interactive)
-       (let* ((new-row (+ ss-cur-row y))
-              (new-col (+ ss-cur-col x))
-              (m (avl-tree-member ss-data (+ ss-cur-row (* ss-max-row (+ ss-cur-col 1)))))
-              (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ new-col 1)))))
-              (ot (if m (elt m ss-c-fmtd) ""))
-              (nt (if n (elt n ss-c-fmtd) "")))
-         (progn
-           (ss-draw-cell ss-cur-col ss-cur-row  (ss-pad-right ot ss-cur-col))
-           (setq ss-cur-row new-row)
-           (setq ss-cur-col new-col)
+  "Move the cursor or selection overaly"
 
-           (ss-draw-cell ss-cur-col ss-cur-row  (ss-highlight  (ss-pad-right nt ss-cur-col) ))
-           (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
+  (let* ((new-row (+ ss-cur-row y))
+	 (new-col (+ ss-cur-col x))
+	 (n (avl-tree-member ss-data (+ new-row (* ss-max-row (+ 1 new-col)))))
+	 (row-pos (line-beginning-position (- (line-number-at-pos) new-row)))
+	 (col-pos (apply '+ (mapcar (lambda (x) (elt ss-col-widths x)) (number-sequence 0 new-col))))) ;; add col-widts b/t 0 and col
+    (if (overlayp ss-cursor)
+	(move-overlay ss-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt ss-col-widths (+ 1 new-col))))
+      (progn
+;;	(debug)
+	(setq ss-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt ss-col-widths (+ 1 new-col)))))
+	(overlay-put ss-cursor 'face '((:foreground "White") (:background "Blue")))
+	))
+    (setq ss-cur-row new-row)
+    (setq ss-cur-col new-col)
+    (minibuffer-message (concat "Cell " (ss-col-letter ss-cur-col) (int-to-string ss-cur-row)
                                        " : " (if n (if (string= "" (elt n ss-c-fmla)) (elt n ss-c-val ) (elt n ss-c-fmla)) "" )))
-           )))
+
+    ))
 
 
 (defun ss-increase-cur-col ()
