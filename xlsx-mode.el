@@ -167,7 +167,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (aset m xlsx-c-fmla nt)))))
 
 (defun xlsx-set-mark () "set the mark to the current cell" (interactive)
-       (setq xlsx-mark-cell xlsx-current-cell))
+       (setq xlsx-mark-cell (list xlsx-cur-row xlsx-cur-row)))
 
 (defun xlsx-edit-cell ( )
   "edit the selected cell"
@@ -560,25 +560,49 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "Move the cursor or selection overaly"
   (goto-char 0)
   (let* ((new-row (+ xlsx-cur-row y))
-	 (new-col (+ xlsx-cur-col x))
+	 (new-col (+ xlsx-cur-col x))	
 	 (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
 	 (row-pos (line-beginning-position (+ 1 new-row)))
-	 (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) ) ;; add col-widts b/t 0 and col
-;    (debug)
-    (if (overlayp xlsx-cursor)
-	(move-overlay xlsx-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths new-col)))
+	 (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
+    (if xlsx-mark-cell 
+	(progn
+	  (if (listp xlsx-cursor) 	    (dolist (ovl xlsx-cursor) (delete-overlay ovl)) nil)
+;	  (debug)
+	  (let* ((mc (elt xlsx-mark-cell 0))
+		 (mr (elt xlsx-mark-cell 1))
+		 (minc (if (> new-col mc) mc new-col))
+		 (maxc (if (> new-col mc) new-col mc))
+		 (minr (if (> new-row mr) mr new-row))
+		 (maxr (if (> new-row mr) new-row mr))
+		 (col-min  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1)))) 0)))
+		 (col-max  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- maxc 1)))) 0))) )
+	    (dotimes (row (+ 1 (- maxr minr)))
+	      (let ((row-pos (line-beginning-position (+ 1 row minr))))
+		(push (make-overlay (+ row-pos col-min) (+ row-pos col-max)) xlsx-cursor)
+		(overlay-put (car (last xlsx-cursor)) 'face '((:foreground "White") (:background "Blue")))
+		))
+	  (setq xlsx-cur-row new-row)
+	  (setq xlsx-cur-col new-col)
+	  (minibuffer-message (concat "Range " (xlsx-col-letter mc) (int-to-string mr)
+				      ":" (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)))
+	  ))
       (progn
-;;	(debug)
-	(setq xlsx-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths  new-col))))
+	(if (overlayp xlsx-cursor)
+	    (move-overlay xlsx-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths new-col)))
+	  (progn
+	    (if (listp xlsx-cursor) 	    (dolist (ovl xlsx-cursor) (delete-overlay ovl)) nil)
+	    (setq xlsx-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths  new-col))))
+	    
+	    ))
 
+	(overlay-put xlsx-cursor 'face '((:foreground "White") (:background "Blue")))
+	(setq xlsx-cur-row new-row)
+	(setq xlsx-cur-col new-col)
+	(minibuffer-message (concat "Cell " (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)
+				    " : " (if n (if (string= "" (elt n xlsx-c-fmla)) (elt n xlsx-c-val ) (elt n xlsx-c-fmla)) "" )))
 	))
     (goto-char (+ row-pos col-pos))
-    (overlay-put xlsx-cursor 'face '((:foreground "White") (:background "Blue")))
-    (setq xlsx-cur-row new-row)
-    (setq xlsx-cur-col new-col)
-    (minibuffer-message (concat "Cell " (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)
-                                       " : " (if n (if (string= "" (elt n xlsx-c-fmla)) (elt n xlsx-c-val ) (elt n xlsx-c-fmla)) "" )))
-
+    (recenter)
     ))
 
 
