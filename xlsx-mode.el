@@ -561,13 +561,13 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (goto-char 0)
   (let* ((new-row (+ xlsx-cur-row y))
 	 (new-col (+ xlsx-cur-col x))	
-	 (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
-	 (row-pos (line-beginning-position (+ 1 new-row)))
-	 (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
+	    (row-pos (line-beginning-position (+ 1 new-row)))
+	    (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
     (if xlsx-mark-cell 
 	(progn
+	  (debug)
 	  (if (listp xlsx-cursor) 	    (dolist (ovl xlsx-cursor) (delete-overlay ovl)) nil)
-;	  (debug)
+
 	  (let* ((mc (elt xlsx-mark-cell 0))
 		 (mr (elt xlsx-mark-cell 1))
 		 (minc (if (> new-col mc) mc new-col))
@@ -576,9 +576,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 		 (maxr (if (> new-row mr) new-row mr))
 		 (col-min  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1)))) 0)))
 		 (col-max  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- maxc 1)))) 0))) )
+
 	    (dotimes (row (+ 1 (- maxr minr)))
 	      (let ((row-pos (line-beginning-position (+ 1 row minr))))
-		(push (make-overlay (+ row-pos col-min) (+ row-pos col-max)) xlsx-cursor)
+		(setq xlsx-cursor (cons (make-overlay (+ row-pos col-min) (+ row-pos col-max)) xlsx-cursor))
 		(overlay-put (car (last xlsx-cursor)) 'face '((:foreground "White") (:background "Blue")))
 		))
 	  (setq xlsx-cur-row new-row)
@@ -586,7 +587,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	  (minibuffer-message (concat "Range " (xlsx-col-letter mc) (int-to-string mr)
 				      ":" (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)))
 	  ))
-      (progn
+      (let ((n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col))))))
 	(if (overlayp xlsx-cursor)
 	    (move-overlay xlsx-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths new-col)))
 	  (progn
