@@ -167,7 +167,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (aset m xlsx-c-fmla nt)))))
 
 (defun xlsx-set-mark () "set the mark to the current cell" (interactive)
-       (setq xlsx-mark-cell (list xlsx-cur-row xlsx-cur-row)))
+       (setq xlsx-mark-cell (list xlsx-cur-col xlsx-cur-row)))
 
 (defun xlsx-edit-cell ( )
   "edit the selected cell"
@@ -564,18 +564,18 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 	 (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
 	 (row-pos (line-beginning-position (+ 1 new-row)))
 	 (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
-    (if xlsx-mark-cell 
+    (if xlsx-mark-cell   ;; highlight a block
 	(progn
 	  (if (listp xlsx-cursor) 	    (dolist (ovl xlsx-cursor) (delete-overlay ovl)) nil)
-;	  (debug)
+;;	  (debug)
 	  (let* ((mc (elt xlsx-mark-cell 0))
 		 (mr (elt xlsx-mark-cell 1))
 		 (minc (if (> new-col mc) mc new-col))
 		 (maxc (if (> new-col mc) new-col mc))
 		 (minr (if (> new-row mr) mr new-row))
 		 (maxr (if (> new-row mr) new-row mr))
-		 (col-min  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1)))) 0)))
-		 (col-max  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- maxc 1)))) 0))) )
+		 (col-min  (+ 4 (if (> minc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1) ))) 0)))
+		 (col-max  (+ 4 (if (> maxc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 maxc ))) 0))) )
 	    (dotimes (row (+ 1 (- maxr minr)))
 	      (let ((row-pos (line-beginning-position (+ 1 row minr))))
 		(push (make-overlay (+ row-pos col-min) (+ row-pos col-max)) xlsx-cursor)
