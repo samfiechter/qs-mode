@@ -167,7 +167,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (aset m xlsx-c-fmla nt)))))
 
 (defun xlsx-set-mark () "set the mark to the current cell" (interactive)
-       (setq xlsx-mark-cell (list xlsx-cur-col xlsx-cur-row)))
+       (if xlsx-mark-cell
+	   (setq xlsx-mark-cell nill)
+       (setq xlsx-mark-cell (list xlsx-cur-col xlsx-cur-row)) ))
 
 (defun xlsx-edit-cell ( )
   "edit the selected cell"
@@ -561,42 +563,27 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (goto-char 0)
   (let* ((new-row (+ xlsx-cur-row y))
 	 (new-col (+ xlsx-cur-col x))	
-<<<<<<< HEAD
 	 (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
 	 (row-pos (line-beginning-position (+ 1 new-row)))
 	 (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
-    (if xlsx-mark-cell   ;; highlight a block
-=======
-	    (row-pos (line-beginning-position (+ 1 new-row)))
-	    (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
     (if xlsx-mark-cell 
->>>>>>> 56b2ccf3fe02b4284510f539512054106cefb310
 	(progn
-	  (debug)
-	  (if (listp xlsx-cursor) 	    (dolist (ovl xlsx-cursor) (delete-overlay ovl)) nil)
-<<<<<<< HEAD
-;;	  (debug)
-=======
-
->>>>>>> 56b2ccf3fe02b4284510f539512054106cefb310
+;	  (debug)
+	  (if (listp xlsx-cursor) (dolist (ovl xlsx-cursor) (delete-overlay ovl)) nil)
+	  (setq xlsx-cursor nil)
 	  (let* ((mc (elt xlsx-mark-cell 0))
 		 (mr (elt xlsx-mark-cell 1))
 		 (minc (if (> new-col mc) mc new-col))
 		 (maxc (if (> new-col mc) new-col mc))
 		 (minr (if (> new-row mr) mr new-row))
 		 (maxr (if (> new-row mr) new-row mr))
-<<<<<<< HEAD
 		 (col-min  (+ 4 (if (> minc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1) ))) 0)))
 		 (col-max  (+ 4 (if (> maxc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 maxc ))) 0))) )
-=======
-		 (col-min  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1)))) 0)))
-		 (col-max  (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- maxc 1)))) 0))) )
-
->>>>>>> 56b2ccf3fe02b4284510f539512054106cefb310
 	    (dotimes (row (+ 1 (- maxr minr)))
-	      (let ((row-pos (line-beginning-position (+ 1 row minr))))
-		(setq xlsx-cursor (cons (make-overlay (+ row-pos col-min) (+ row-pos col-max)) xlsx-cursor))
-		(overlay-put (car (last xlsx-cursor)) 'face '((:foreground "White") (:background "Blue")))
+	      (let ((ovl nil) (row-pos (line-beginning-position (+ 1 row minr))))
+		(setq ovl (make-overlay (+ row-pos col-min) (+ row-pos col-max)))
+		(overlay-put ovl 'face '((:foreground "White") (:background "Blue")))
+		(push ovl xlsx-cursor)
 		))
 	  (setq xlsx-cur-row new-row)
 	  (setq xlsx-cur-col new-col)
