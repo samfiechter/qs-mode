@@ -17,6 +17,7 @@
 (defvar xlsx-empty-name "*Sams Spreadsheet Mode*")
 
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "%0.2g" "= 3 /2" (list of cells to calc when changes)]
+
 ;;   0 = index / cell Name
 (defvar xlsx-c-addr 0)
 ;;   1 = value (formatted)
@@ -30,6 +31,7 @@
 ;;   5 = depends on -- list of indexes
 (defvar xlsx-c-deps 5)
 
+(defvar xlsx-lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
 
 ;; status vars
 (defvar xlsx-cur-col 0)
@@ -50,7 +52,6 @@
 ;; ;;;;;;;;;;;;; keymaps ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar xlsx-map  (make-sparse-keymap 'xlsx-map))
-
 
 (define-key xlsx-map [left]       'xlsx-move-left)
 (define-key xlsx-map [right]      'xlsx-move-right)
@@ -78,8 +79,8 @@
 ;;
 
 (defun xlsx-new-cell (addr) "Blank cell"
-  (vector addr "" "" xlsx-default-number-fmt "" (list) )
-  )
+       (vector addr "" "" xlsx-default-number-fmt "" (list) )
+       )
 
 (defun xlsx-transform-fmla (from to fun)
   "transform a function from from to to moving all addresses relative to the addresses
@@ -99,10 +100,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     ))
 
 (defun xlsx-clear-key () "delete current cell" (interactive)
-  (let  (  (current-cell (concat (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row))))
-    (if  (avl-tree-delete xlsx-data current-cell)
-        (xlsx-draw-cell xlsx-cur-col xlsx-cur-row (xlsx-pad-right "" xlsx-cur-col))
-      nil) ))
+       (let  (  (current-cell (concat (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row))))
+         (if  (avl-tree-delete xlsx-data current-cell)
+             (xlsx-draw-cell xlsx-cur-col xlsx-cur-row (xlsx-pad-right "" xlsx-cur-col))
+           nil) ))
 
 (defun xlsx-avl-cmp (a b)
   "This is the function used by avl tree to compare ss addresses"
@@ -111,18 +112,18 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
 (defun xlsx-addr-to-index (a)  "Convert from ss addr (e.g. A1) to index  -- expects [A-Z]+[0-9]+"
-  (let ((chra (- (string-to-char "A") 1))
-        (lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
-        )
-    (if (sequencep a)
-        (progn
-          (let ((out 0) (i 0))
-            (while (and  (< i (length a)) (< chra (elt a i)))
-              (setq out (+ (* 26 out)  (- (logand lcmask (elt a i)) chra))) ;; -33 is mask to change case
-              (setq i (+ 1 i)))
-            (setq out (+ (* out xlsx-max-row) (string-to-int (substring a i))))
-            out))
-      a )))
+       (let ((chra (- (string-to-char "A") 1))
+
+             )
+         (if (sequencep a)
+             (progn
+               (let ((out 0) (i 0))
+                 (while (and  (< i (length a)) (< chra (elt a i)))
+                   (setq out (+ (* 26 out)  (- (logand xlsx-lcmask (elt a i)) chra))) ;; -33 is mask to change case
+                   (setq i (+ 1 i)))
+                 (setq out (+ (* out xlsx-max-row) (string-to-int (substring a i))))
+                 out))
+           a )))
 
 (defun xlsx-index-to-addr (idx)
   "Convert form ss index to addr (eg A1) -- expects integer"
@@ -132,14 +133,17 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (concat (xlsx-col-letter col) (int-to-string row))
         ) "A1") )
 
-(defun xlsx-col-number (a)
+(defun xlsx-col-number (column)
   "returns the index of a column id -- expects letters"
   (let ((chra (- (string-to-char "A") 1))
-        (lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
-        (out 0) (i 0))
+        (out 0) (i 0)
+        (a column))
+    (dotimes (j (length a))
+      (aset a j (logand xlsx-lcmask (elt a j))) )
     (while (and  (< i (length a)) (< chra (elt a i)))
-      (setq out (+ (* 26 out)  (- (logand lcmask (elt a i)) chra))) ;; -33 is mask to change case
-      (setq i (+ 1 i)))
+      (setq out (+ (* 26 out)  (- (elt a i) chra))) ;; -33 is mask to change case
+      (setq i (+ 1 i)) )
+    out
     ))
 
 (defun xlsx-col-letter (a)
@@ -167,10 +171,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
         (aset m xlsx-c-fmla nt)))))
 
 (defun xlsx-set-mark () "set the mark to the current cell" (interactive)
-  (if xlsx-mark-cell
-      (setq xlsx-mark-cell nil)
-    (setq xlsx-mark-cell (list xlsx-cur-col xlsx-cur-row)))
-  (xlsx-move-cur-cell 0 0) )
+       (if xlsx-mark-cell
+           (setq xlsx-mark-cell nil)
+         (setq xlsx-mark-cell (list xlsx-cur-col xlsx-cur-row)))
+       (xlsx-move-cur-cell 0 0) )
 
 (defun xlsx-edit-cell ( )
   "edit the selected cell"
@@ -267,6 +271,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (eval (list (cdr e) filename))
         nil) )))
 
+(defun xlsx-to-int (w)
+  (truncate (if (numberp w) w (string-to-number w))))
+
 (defun xlsx-load-xlsx (filename )
   "Try and read an XLSX file into xlsx-mode"
   (let ((xml nil)
@@ -289,15 +296,14 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (if (string= type styletype) (push name styles))
           (if (string= type stringstype) (push name strings))
           )))
-
-    (setq sheets (vconcat (nreverse sheets)))
+    (setq sheets  (nreverse sheets))
     (setq styles (nreverse styles))
     (setq strings (nreverse strings))
-    (dolist (sfn sheets)
-
-      (dolist (stringfn strings)
+    (dolist (sfn sheets)  ;; sfn is the sheet file name
+      (dolist (stringfn strings) ;; stringfn is the string file name
         (with-temp-buffer
           (erase-buffer)
+          (message "Decompressing Strings %s..." (concat "unzip -p " filename " " (substring stringfn 1)));; strings
           (shell-command (concat "unzip -p " filename " " (substring stringfn 1)) (current-buffer))
           (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
           (let ((ts (xlsx-xml-query (car xml) "t")) )
@@ -305,14 +311,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
               (push (elt cell 2) shstrs)
               ))))
       (setq shstrs (vconcat  (nreverse shstrs)))
-      ;; load styles...
+
       (with-temp-buffer
+
+        (message "Decompressing Sheet %s..." (concat "unzip -p " filename " " (substring sfn 1)) ) ;; sheet layout
         (erase-buffer)
         (shell-command (concat "unzip -p " filename " " (substring sfn 1)) (current-buffer))
         (setq xml (xml-parse-region (buffer-end -1) (buffer-end 1)))
         (let ((sheet (avl-tree-create 'xlsx-avl-cmp))
               (cols (xlsx-xml-query (car xml) "col")))
-          (push xlsx-sheets sheet)
           (setq xlsx-data sheet)
           (dolist (col cols)
             (let ((max (string-to-int (cdr (assoc 'max (elt col 1)))))
@@ -320,35 +327,36 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                   (width (cdr (assoc 'width (elt col 1))))
                   (len (length xlsx-col-widths)) )
               (if (< len  max)
-                  (setq xlsx-col-widths (vconcat xlsx-col-widths (make-vector (- max len) (truncate width)))) nil )
-              (dotimes (i (+1 (- max min)))
-                (aset xlsx-col-widths (+ min i) (truncate width)))
+                  (setq xlsx-col-widths (vconcat xlsx-col-widths (make-vector (- max len) (xlsx-to-int width)))) nil )
+              (dotimes (i (- max min))
+                (aset xlsx-col-widths (+ min i) (xlsx-to-int width)))
+              ))
+          (dolist (cell (xlsx-xml-query (car xml) "c"))
+            (let* ((range (prin1-to-string (cdr (assoc 'r (elt cell 1))) t))
+                   (value (prin1-to-string (car (cddr (assoc 'v cell))) t))
+                   (fmla (prin1-to-string  (car (cddr (assoc 'f cell))) t)))
+              (if (string= value "nil") (setq value ""))
+              (if (string= "s" (cdr (assoc 't (elt cell 1)))) (setq value (elt shstrs (string-to-int value))))
+              (if (string= fmla "nil") (setq fmla ""))
+              (if (string-match "\\([A-Za-z]+\\)\\([0-9]+\\)" range)
+                  (let ((row (string-to-int (match-string 2 range)))
+                        (col (xlsx-col-number (match-string 1 range))))
+                    (setq col (if col col 0))
+                    (if (<= xlsx-max-row row) (setq xlsx-max-row (+ 5 row)))
+                    (if (<= xlsx-max-col col)
+                        (progn
+                          (setq xlsx-col-widths (vconcat xlsx-col-widths (make-vector  (- col xlsx-max-col ) 7)))
+                          (setq xlsx-max-col (length xlsx-col-widths))
+                          ) nil )
+                    ) nil)
+              (if (string= "" fmla)
+                  (xlsx-update-cell range value)
+                (xlsx-update-cell range (concat "=" fmla)))
               )))
-        (dolist (cell (xlsx-xml-query (car xml) "c"))
-          (let* ((range (prin1-to-string (cdr (assoc 'r (elt cell 1))) t))
-                 (value (prin1-to-string (car (cddr (assoc 'v cell))) t))
-                 (fmla (prin1-to-string  (car (cddr (assoc 'f cell))) t)))
-
-            (if (string= value "nil") (setq value ""))
-            (if (string= "s" (cdr (assoc 't (elt cell 1)))) (setq value (elt shstrs (string-to-int value))))
-            (if (string= fmla "nil") (setq fmla ""))
-
-            (if (string-match "\\([A-Za-z]+\\)\\([0-9+]\\)" range)
-                (let ((row (string-to-int (match-string 2 range)))
-                      (col (xlsx-col-number (match-string 1 range))))
-                  (if (<= xlsx-max-row row) (setq xlsx-max-row (+ 2 row)))
-                  (if (<= xlsx-max-col col)
-                      (progn
-                        (setq xlsx-col-widths (vconcat xlsx-col-widths (make-vector  (- col xlsx-max-col ) 7)))
-                        (setq xlsx-max-col (length xlsx-col-widths))
-                        ) nil )
-                  ) nil)
-            (if (string= "" fmla)
-                (xlsx-update-cell range value)
-              (xlsx-update-cell range (concat "=" fmla)))
-            ))))
-    (setq xlsx-data (car sheets))
-    (xlsx-draw-all)
+        (push  xlsx-data xlsx-sheets) ))
+    (let ((xd (car xlsx-sheets)))
+      (setq xlsx-data (if xd xd (avl-tree-create 'xlsx-avl-cmp)))
+      (xlsx-draw-all) )
     ))
 
 (defun xlsx-load-csv (filename)
@@ -405,10 +413,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun xlsx-format-number (fmt val)
   "output text format of numerical value according to format string
-
-000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
-#,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
-0.00## -- Round to four digits, and pad out to at least two."
+   000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
+   #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma ever three
+   0.00## -- Round to four digits, and pad out to at least two."
   (if (stringp val) nil (setq val (format "%s" val)))
   (if (equal 0 (string-match "^ *\\+?-?[0-9,\\.]+ *$" val))
       (progn
@@ -488,6 +495,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (let ((i 0) (j 0) (k 0) (header (make-string xlsx-row-padding (string-to-char " "))))
     (beginning-of-buffer)
     (erase-buffer)
+    (setq cursor-type nil)  ;; no cursor
+    (setq truncate-lines 1)  ;; no wrap-aroudn
     (dotimes (i xlsx-max-col)  ;; make header
       (setq header (concat header (xlsx-pad-right (xlsx-col-letter i) i))))
     (dotimes (j xlsx-max-row) ;; draw buffer
@@ -520,20 +529,16 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
     (insert text)
     (delete-forward-char (length text))
-    (recenter)
+                                        ;    (recenter)
     ))
-
-
 
 (defun xlsx-move-left ()
   (interactive)
-  (if (> xlsx-cur-col  0)
-      (xlsx-move-cur-cell -1 0) nil)
+  (if (> xlsx-cur-col  0) (xlsx-move-cur-cell -1 0) nil)
   )
 
 (defun xlsx-move-right ()
   (interactive)
-                                        ;  (debug)
   (if (< xlsx-cur-col (- xlsx-max-col 1))
       (xlsx-move-cur-cell 1 0)
     (progn
@@ -560,57 +565,57 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       )))
 
 (defun xlsx-move-cur-cell (x y) (interactive)
-  "Move the cursor or selection overaly"
-  (goto-char 0)
-  (let* ((new-row (+ xlsx-cur-row y))
-         (new-col (+ xlsx-cur-col x))
-         (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
-         (row-pos (line-beginning-position (+ 1 new-row)))
-         (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
-    (if (listp xlsx-cursor) (progn
-                              (dolist (ovl xlsx-cursor) (delete-overlay ovl))
-                              (setq xlsx-cursor nil) ))
-    (if xlsx-mark-cell
-        (progn  ;; mark set...
-          (if (overlayp xlsx-cursor) (progn
-                                       (delete-overlay xlsx-cursor)
-                                       (setq xlsx-cursor nil) ))
-          (let* ((mc (elt xlsx-mark-cell 0))
-                 (mr (elt xlsx-mark-cell 1))
-                 (minc (if (> new-col mc) mc new-col))
-                 (maxc (if (> new-col mc) new-col mc))
-                 (minr (if (> new-row mr) mr new-row))
-                 (maxr (if (> new-row mr) new-row mr))
-                 (col-min  (+ 4 (if (> minc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1) ))) 0)))
-                 (col-max  (+ 4 (if (>= maxc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 maxc ))) 0))) )
-            (dotimes (row (+ 1 (- maxr minr)))
-              (let ((ovl nil) (row-pos (line-beginning-position (+ 1 row minr))))
-                (setq ovl (make-overlay (+ row-pos col-min) (+ row-pos col-max)))
-                (overlay-put ovl 'face '((:foreground "White") (:background "Blue")))
-                (push ovl xlsx-cursor)
-                ))
-            (setq xlsx-cur-row new-row)
-            (setq xlsx-cur-col new-col)
-            (minibuffer-message (concat "Range " (xlsx-col-letter mc) (int-to-string mr)
-                                        ":" (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)))
-            ))
-      ;; Mark Not set...
-      (let ((n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col))))))
-        (if (overlayp xlsx-cursor)
-            (move-overlay xlsx-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths new-col)))
-          (progn
-            (setq xlsx-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths  new-col))))
-            ))
+       "Move the cursor or selection overaly"
+                                        ;       (goto-char 0)
+       (let* ((new-row (+ xlsx-cur-row y))
+              (new-col (+ xlsx-cur-col x))
+              (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
+              (row-pos (line-beginning-position (+ 1 new-row)))
+              (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
+         (if (listp xlsx-cursor) (progn
+                                   (dolist (ovl xlsx-cursor) (delete-overlay ovl))
+                                   (setq xlsx-cursor nil) ))
+         (if xlsx-mark-cell
+             (progn  ;; mark set...
+               (if (overlayp xlsx-cursor) (progn
+                                            (delete-overlay xlsx-cursor)
+                                            (setq xlsx-cursor nil) ))
+               (let* ((mc (elt xlsx-mark-cell 0))
+                      (mr (elt xlsx-mark-cell 1))
+                      (minc (if (> new-col mc) mc new-col))
+                      (maxc (if (> new-col mc) new-col mc))
+                      (minr (if (> new-row mr) mr new-row))
+                      (maxr (if (> new-row mr) new-row mr))
+                      (col-min  (+ 4 (if (> minc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- minc 1) ))) 0)))
+                      (col-max  (+ 4 (if (>= maxc 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 maxc ))) 0))) )
+                 (dotimes (row (+ 1 (- maxr minr)))
+                   (let ((ovl nil) (row-pos (line-beginning-position (+ 1 row minr))))
+                     (setq ovl (make-overlay (+ row-pos col-min) (+ row-pos col-max)))
+                     (overlay-put ovl 'face '((:foreground "White") (:background "Blue")))
+                     (push ovl xlsx-cursor)
+                     ))
+                 (setq xlsx-cur-row new-row)
+                 (setq xlsx-cur-col new-col)
+                 (minibuffer-message (concat "Range " (xlsx-col-letter mc) (int-to-string mr)
+                                             ":" (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)))
+                 ))
+           ;; Mark Not set...
+           (let ((n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col))))))
+             (if (overlayp xlsx-cursor)
+                 (move-overlay xlsx-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths new-col)))
+               (progn
+                 (setq xlsx-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt xlsx-col-widths  new-col))))
+                 ))
 
-        (overlay-put xlsx-cursor 'face '((:foreground "White") (:background "Blue")))
-        (setq xlsx-cur-row new-row)
-        (setq xlsx-cur-col new-col)
-        (minibuffer-message (concat "Cell " (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)
-                                    " : " (if n (if (string= "" (elt n xlsx-c-fmla)) (elt n xlsx-c-val ) (elt n xlsx-c-fmla)) "" )))
-        ))
-    (goto-char (+ row-pos col-pos))
-    (recenter)
-    ))
+             (overlay-put xlsx-cursor 'face '((:foreground "White") (:background "Blue")))
+             (setq xlsx-cur-row new-row)
+             (setq xlsx-cur-col new-col)
+             (minibuffer-message (concat "Cell " (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)
+                                         " : " (if n (if (string= "" (elt n xlsx-c-fmla)) (elt n xlsx-c-val ) (elt n xlsx-c-fmla)) "" )))
+             ))
+         (goto-char (+ row-pos col-pos))
+         (recenter nil)
+         ))
 
 
 (defun xlsx-increase-cur-col ()
@@ -629,7 +634,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;; | |__|  __/ | | | |___ \ V / (_| | | |_| | (_| | |_| | (_) | | | |
 ;;  \____\___|_|_| |_____| \_/ \__,_|_|\__,_|\__,_|\__|_|\___/|_| |_|
 ;; fuctions dealing with eval
-
 
 (defun xlsx-cell-val (address)
   "get the value of a cell"
@@ -715,8 +719,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun xlsx-add-dep (ca cc)
   "Add to dep list.
    CA -- addr to to add
-   CC -- cell who depends
-"
+   CC -- cell who depends"
   (let ((addr (replace-regexp-in-string "\\$" "" ca)))
     (if (string-match xlsx-range-parts-re addr)
         (progn
@@ -747,6 +750,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             (avl-tree-enter xlsx-data m)
             ))))))
 
+
 (defun xlsx-del-dep (ca cc)
   "Remove from dep list."
   (let ((addr (replace-regexp-in-string "\\$" "" ca)))
@@ -771,9 +775,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                 )
               )))
       (let  ( (m (avl-tree-member xlsx-data (xlsx-addr-to-index addr))))
-        (if m
+        (if
             (delete cc (aref m xlsx-c-deps))
-          nil) ))))
+            nil) ))))
 
 
 
@@ -783,6 +787,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   Keybindings:
   \\{xlsx-map} "
   (use-local-map xlsx-map)
+  ;;  (setq truncate-lines 1)
 
   ;; (unless (featurep 'emacs)
   ;;   (setq mode-popup-menu
@@ -795,10 +800,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
   (setq xlsx-cur-col 0)
-  (setq xlsx-max-col 3)
+  (setq xlsx-max-col 30)
   (setq xlsx-col-widths (make-vector xlsx-max-col 7))
   (setq xlsx-cur-row 1)
-  (setq xlsx-max-row 3)
+  (setq xlsx-max-row 30)
   (setq xlsx-row-padding 4)
   (setq xlsx-data (avl-tree-create 'xlsx-avl-cmp))
   (if (file-exists-p (buffer-file-name)) (xlsx-load (buffer-file-name)) nil)
