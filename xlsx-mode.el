@@ -566,11 +566,12 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 (defun xlsx-move-cur-cell (x y) (interactive)
        "Move the cursor or selection overaly"
-                                        ;       (goto-char 0)
+       (goto-char 0)
        (let* ((new-row (+ xlsx-cur-row y))
               (new-col (+ xlsx-cur-col x))
               (n (avl-tree-member xlsx-data (+ new-row (* xlsx-max-row (+ 1 new-col)))))
               (row-pos (line-beginning-position (+ 1 new-row)))
+	      (cur-mesg "")
               (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt xlsx-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
          (if (listp xlsx-cursor) (progn
                                    (dolist (ovl xlsx-cursor) (delete-overlay ovl))
@@ -610,11 +611,12 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
              (overlay-put xlsx-cursor 'face '((:foreground "White") (:background "Blue")))
              (setq xlsx-cur-row new-row)
              (setq xlsx-cur-col new-col)
-             (minibuffer-message (concat "Cell " (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)
+            (setq cur-mesg (concat "Cell " (xlsx-col-letter xlsx-cur-col) (int-to-string xlsx-cur-row)
                                          " : " (if n (if (string= "" (elt n xlsx-c-fmla)) (elt n xlsx-c-val ) (elt n xlsx-c-fmla)) "" )))
              ))
          (goto-char (+ row-pos col-pos))
          (recenter nil)
+	 (minibuffer-message cur-mesg)
          ))
 
 
@@ -823,6 +825,13 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (interactive 1 "sum")
   :" vsum(x)"
 
+  )
+
+(defmath ROUND (x n)
+  "Rounds the number x to n"
+  (interactive 2 "x n")
+  :" (calc-floor(x * 10^n) / 10^n)"
+  
   )
 
 
