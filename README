@@ -16,8 +16,7 @@
 | |  | | (_) | (_| |  __/	
 |_|  |_|\___/ \__,_|\___|	
                          	
-
-This is a spreadsheet like interface to calc using tabular mode.  The point is to have a spreadshet-like interface to calc that will do for quick calcuations.
+This is a spreadsheet like interface to calc.  The point is to have a spreadshet-like interface to calc that will do for quick calcuations.
 
 
 Selling points:
@@ -28,4 +27,5 @@ Selling points:
 
 Downsides:
 -Not very emacs-like
--buggy as shitq
+-buggy...
+
