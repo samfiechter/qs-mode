@@ -1,9 +1,33 @@
-ss-mode
+qs-mode
 =======
+  ___        _      _    	
+ / _ \ _   _(_) ___| | __	
+| | | | | | | |/ __| |/ /	
+| |_| | |_| | | (__|   < 	
+ \__\_\\__,_|_|\___|_|\_\	
+                         	
+ ____                           _     _               _   	
+/ ___| _ __  _ __ ___  __ _  __| |___| |__   ___  ___| |_ 	
+\___ \| '_ \| '__/ _ \/ _` |/ _` / __| '_ \ / _ \/ _ \ __|	
+ ___) | |_) | | |  __/ (_| | (_| \__ \ | | |  __/  __/ |_ 	
+|____/| .__/|_|  \___|\__,_|\__,_|___/_| |_|\___|\___|\__|	
+      |_|                                                 	
+ __  __           _      	
+|  \/  | ___   __| | ___ 	
+| |\/| |/ _ \ / _` |/ _ \	
+| |  | | (_) | (_| |  __/	
+|_|  |_|\___/ \__,_|\___|	
+                         	
 
-This is a tabular-mode like interface to emacs's calc... it's in progress
-
---It loads CSV files (kinda)
+This is a spreadsheet like interface to calc.  The point is to have a spreadshet-like interface to calc that will do for quick calcuations.
 
 
---It loads XLSX files (not really)
+Selling points:
+-Write and save to csv
+-can interface comamnd-line commands though (defmath)'s
+-easier and faster to use than existing ses modes
+-functions Examples "=(a1+a2)"  "=vsum(a1:b2)"
+
+Downsides:
+-Not very emacs-like
+-buggy...
