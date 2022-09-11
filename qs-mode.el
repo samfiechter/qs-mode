@@ -16,10 +16,9 @@
 (defvar qs-range-re "$?[A-Za-z]+$?[0-9]+\\:$?[A-Za-z]+$?[0-9]+")
 (defvar qs-cell-or-range-re (concat "[^A-Za-z0-9]?\\(" qs-range-re  "\\|" qs-one-cell-re  "\\)[^A-Za-z0-9\(]?"))
 (defvar qs-empty-name "Quick Spreadsheet")
-(defvar qs-format-re "\\([#,]*0*.?0*#*\\) ?\\([\\%kMBE]\\)? *")
+(defvar qs-format-re "\\([-b]\\)\\([#,]*0*.?0*#*\\) ?\\([\\%kMBE]\\)? *")
 
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "#0.00M" "= 3 /2" (list of cells to calc when changes)]
-
 ;;   0 = index / cell Name
 (defvar qs-c-addr 0)
 ;;   1 = value (formatted)
@@ -46,8 +45,9 @@
 (defvar qs-row-padding 5)
 (defvar qs-sheets (list )) ;; list of qs-data
 (defvar qs-data (avl-tree-create 'qs-avl-cmp))
-(defvar qs-default-number-fmt "#,##0.########")
+(defvar qs-default-number-fmt "-#,##0.########")
 (defvar qs-cursor nil)
+(defvar qs-copy-buffer ())
 
 ;;other
 (defvar qs-input-history (list ))
@@ -63,13 +63,17 @@
 (define-key qs-map [up]         'qs-move-up)
 (define-key qs-map [down]       'qs-move-down)
 (define-key qs-map [return]     'qs-edit-cell)
-(define-key qs-map [deletechar]        'qs-clear-key)
-(define-key qs-map [backspace]  'qs-clear-key)
+(define-key qs-map [deletechar] 'qs-clear-area)
+(define-key qs-map [backspace]  'qs-clear-area)
 (define-key qs-map [remap set-mark-command] 'qs-set-mark)
 (define-key qs-map [remap self-insert-command] 'qs-edit-cell)
 (define-key qs-map (kbd "C-x f") 'qs-edit-format)
 (define-key qs-map (kbd "C-x r") 'qs-resize-col-to-fit)
 (define-key qs-map (kbd "C-x d") 'qs-redraw)
+(define-key qs-map (kbd "C-w") 'qs-cut-area)
+(define-key qs-map (kbd "M-w") 'qs-copy-area)
+(define-key qs-map (kbd "C-y") 'qs-paste-area)
+
 
 ;;(define-key qs-map [C-R]        'qs-search-buffer)
 
@@ -89,29 +93,137 @@
        (vector addr "" "" qs-default-number-fmt "" (list) )
        )
 
-(defun qs-transform-fmla (from to fun)
+
+
+(defun qs-clear-area () "delete current cell or marked range" (interactive)
+       (let* ((start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
+              (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
+              (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
+              (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
+              (rows ()))
+         (dotimes (y row-len)
+           (dotimes (x col-len)
+             (let* ((del-cell-addr (qs-rowcol-to-addr (+ x start-col) (+ y start-row)))
+                    (del-cell-index (qs-rowcol-to-index (+ x start-col) (+ y start-row)))
+                    )
+               (qs-update-cell del-cell-addr "" "")
+               )))
+         (setq qs-mark-cell nil)
+         (qs-draw-all)
+         (set-buffer-modified-p 1)
+         )
+       )
+
+(defun qs-cut-area () "cut currrent cell or marked area" (iteractive)
+       (qs-copy-area)
+       (qs-clear-area)
+       (setq qs-mark-cell nil)
+       (qs-draw-all)
+       )
+
+(defun qs-copy-area () "copy current cell or marked range into the copy buffer" (interactive)
+       (let* ((start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
+              (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
+              (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
+              (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
+              (this-cell "")
+              (rows ()))
+         (dotimes (y row-len)
+           (let ((ccols ()))
+             (dotimes (x col-len)
+               (setq this-cell (qs-rowcol-to-index (+ x start-col) (+ y start-row)))
+               (setq ccols (append ccols (list (avl-tree-member qs-data this-cell))))
+               )
+             (setq rows (append rows (list ccols)))
+             )
+           )
+         (setq qs-copy-buffer rows)
+         (setq qs-mark-cell nil)
+         ))
+
+(defun qs-transform-fmla (from-addr to-addr fmla)
   "transform a function from from to to moving all addresses relative to the addresses
 EX:  From: A1 To: B1 Fun: = A2 / B1
-     Returns: = B2 / C1
+     Returns: = B2 / C1 "
+  (let* ((from-rc (qs-addr-to-rowcol from-addr))
+         (to-rc (qs-addr-to-rowcol to-addr))
+         (col-delta (- (elt to-rc 0) (elt from-rc 0)))
+         (row-delta (- (elt to-rc 1) (elt from-rc 1)))
+         (cell-ref-re "\\($?[A-Za-z]+\\)\\($?[0-9]+\\)")
+         (i 0)
+         (flen (length fmla))
+         (new-fmla "")
+         (end-flma "")
+         (worked t)
+         )
 
-"
-  (let* ((f (qs-addr-to-index from))
-         (t (qs-addr-to-index to))
-         (s (concat " fun "))
-         (refs (qs-formula-cell-refs s)))
-    (dolist (ref refs)
-      (setq cr (qs-index-to-addr (+ (- (qs-addr-to-index (elt ref 0)) f) t)))
-      (setq s (concat (substring s 0 (elt ref  1)) cr (substring s (elt ref 2))))
-      )
-    (substring s 1 -1)
+    (while (and (< i (length fmla)) (string-match cell-ref-re fmla i))
+      (let* ((old-addr-col (match-string 1 fmla))
+             (old-addr-row (match-string 2 fmla))
+             (old-col-row (qs-addr-to-rowcol (string-replace "$" "" (concat old-addr-col old-addr-row))))
+             (newcol (if (not (equal (string-to-char "$") (elt old-addr-col 0))) (+ (elt old-col-row 0) col-delta) (elt old-col-row 0)))
+             (newrow (if (not (equal (string-to-char "$") (elt old-addr-row 0))) (+ (elt old-col-row 1) row-delta) (elt old-col-row 1)))
+             (mat-end (match-end 0 ))
+             )
+        (if (or (not worked) (< newcol 0) (< newrow 1))
+            (progn
+              (setq worked nil)
+              (setq i (+ 1 (length fmla))) )
+          (progn
+            (setq new-fmla (concat new-fmla
+                                   (substring fmla i (match-beginning 0 ))
+                                   (if (equal (string-to-char "$") (elt old-addr-col 0)) "$")
+                                   (qs-col-letter newcol)
+                                   (if (equal (string-to-char "$") (elt old-addr-row 0)) "$")
+                                   (int-to-string newrow)))
+            (if (and mat-end (< mat-end flen)) (setq end-fmla (substring fmla mat-end flen)))
+            (setq i mat-end)
+            ) )
+        ))
+    (if end-fmla  (setq new-fmla (concat new-fmla end-fmla)))
+    (if worked new-fmla worked)
     ))
 
-(defun qs-clear-key () "delete current cell" (interactive)
-       (let  (  (current-cell (concat (qs-col-letter qs-cur-col) (int-to-string qs-cur-row))))
-         (message "Deleting Cell : %s" current-cell)
-         (if  (avl-tree-delete qs-data (qs-addr-to-index current-cell))
-             (progn (qs-draw-all) (set-buffer-modified-p 1) )
-           nil) ))
+
+
+(defun qs-paste-area () "paste the copy buffer into the sheet" (interactive)
+       (if qs-copy-buffer
+           (let* (
+                  (paste-rows (length qs-copy-buffer))
+                  (paste-cols (length (elt qs-copy-buffer 0)))
+                  (start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
+                  (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
+                  (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
+                  (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
+                  (copy-elt-y 0)
+                  (copy-elt-x 0)
+                  )
+             (if (equal col-len 1) (setq col-len paste-cols))
+             (if (equal row-len 1) (setq row-len paste-rows))
+             (dotimes (y row-len)
+               (let ((row (elt qs-copy-buffer copy-elt-y)) )
+                 (dotimes (x col-len)
+                   (let ((cell (elt row copy-elt-x)) )
+                     (if cell
+                         (let* (
+                                (addr (qs-rowcol-to-addr  (+ x start-col) (+ y start-row)))
+                                (cell-fmla  (elt cell qs-c-fmla))
+                                (fmla (if (or (not cell-fmla) (string= "" cell-fmla)) ""
+                                        (qs-transform-fmla (elt cell qs-c-addr) addr cell-fmla)))
+                                (txt  (if (and fmla (not (string= "" fmla))) fmla (elt cell qs-c-val)))
+                                (fmt  (if (string= "" (elt cell qs-c-fmt)) nil (elt cell qs-c-fmt)))
+                                (m (qs-update-cell addr txt fmt))
+                                )
+                           (setq copy-elt-x (if (eql  (+ 1 copy-elt-x) paste-cols) 0 (+ 1 copy-elt-x)))
+                           ))))
+                 (setq copy-elt-y (if (eql (+ 1 copy-elt-y)  paste-rows ) 0 (+ 1 copy-elt-y)))
+                 ))
+             )
+         )
+       (setq qs-mark-cell nil)
+       (qs-draw-all)
+       )
+
 
 (defun qs-avl-cmp (a b)
   "This is the function used by avl tree to compare ss addresses"
@@ -119,9 +231,29 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (< (qs-addr-to-index A) (qs-addr-to-index B)) ))
 
 
+(defun qs-rowcol-to-addr ( col row ) "return the cell address (eg A1) form row and col)"
+       (concat (qs-col-letter  col) (int-to-string row)))
+
+(defun qs-rowcol-to-index (col row) "return the index for row col"
+       (+ (* qs-max-row (+ 1 col)) row))
+
+(defun qs-addr-to-rowcol (a) "return (col row) from addr"
+       (let ((chra (string-to-char "A") )
+             (col 0)
+             (row 0)
+             (i 0))
+         (if (sequencep a)
+             (progn
+               (while (and  (< i (length a)) (<= chra (elt a i)))
+                 (setq col (+ (* 26 col)  (- (logand qs-lcmask (elt a i)) chra))) ;; -33 is mask to change case
+                 (setq i (+ 1 i)))
+               (setq row (floor (string-to-number (substring a i))))
+               (list col row))
+           nil )))
+
+
 (defun qs-addr-to-index (a)  "Convert from ss addr (e.g. A1) to index  -- expects [A-Z]+[0-9]+"
-       (let ((chra (- (string-to-char "A") 1))
-             )
+       (let ((chra (- (string-to-char "A") 1)))
          (if (sequencep a)
              (progn
                (let ((out 0) (i 0))
@@ -204,9 +336,20 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (qs-draw-cell qs-cur-col qs-cur-row (qs-pad-right (elt m qs-c-fmtd) qs-cur-col))
     (qs-move-down)
     ))
+(defun qs-default-fmt (num ) "get a default format for a number"
+       (let ((nnt (if (numberp num) num (qs-s-to-n num))))
+         (cond
+          ((> .001 nnt) "-0.00E")
+          ((> 1 nnt) "-0.00%")
+          ((< (expt 10 12) nnt) "-0.00E")
+          ((< (expt 10 9) nnt) "b#,##0.#B")
+          ((< (expt 10 6) nnt) "b#,##0.#M")
+          ((< 1000 nnt) "b#,##0.#k")
+          (t qs-default-number-fmt)
+          ))
+       )
 
-
-(defun qs-update-cell (current-cell nt)
+(defun qs-update-cell (current-cell nt &optional format)
   "Update the value/formula  of current cell to nt"
   (let  ( (m (avl-tree-member qs-data (qs-addr-to-index current-cell)))
           )
@@ -214,10 +357,10 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (if m (let ((refs (qs-formula-cell-refs  (aref m qs-c-fmla))))
             (dolist (ref refs)
               (qs-del-dep (elt ref 0) current-cell))
-            ) nil )
+            ))
     ;; if this is a formula, eval and do deps
-    (if (and (< 0 (length nt)) (= (string-to-char "=") (elt nt 0))) ; formulas start with  =
-        (progn
+    (if (and (< 0 (length nt)) (string= "=" (substring nt 0 1)))
+        (progn  ;;If there is a formula set formula and calc it.
           (if m
               (aset m qs-c-fmla nt)
             (progn
@@ -233,61 +376,63 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                                                                       (let ((addr (match-string 1 str)))
                                                                         (push addr deps)
                                                                         (qs-cell-val addr)))) s nil nil 1))
-            (dolist (dep deps)
-              (qs-add-dep dep current-cell))
 
-            (setq nt (calc-eval (substring s 1 -1 ) ))  ;; throw away = and  ' '
-	    (let* ((nnt (if (numberp nt) nt (qs-s-to-n nt)))
-		  (nf (cond
-                       ((> .001 nnt) "0.00E")
-		       ((> 1 nnt) "0.00%")
-                       ((< (expt 10 12) nnt) "0.00E")
-                       ((< (expt 10 9) nnt) "#,##0.#B")
-                       ((< (expt 10 6) nnt) "#,##0.#M")
-                       ((< 1000 nnt) "#,##0.#k")
-                       (t qs-default-number-fmt)
-                       )))
-              (aset m qs-c-fmt nf)
-	      )	    
-            ))
-      (if m (aset m qs-c-fmla "") nil))
-    ;; nt is now not a formula
+            (dolist (dep deps)  ;; set in the above lambda
+              (qs-add-dep current-cell dep))
 
+            (setq nt (qs-calc-eval-error (calc-eval (substring s 1 (length s)))))
 
+            (if format
+                (aset m qs-c-fmt format)
+              (let ( (nnt (qs-s-to-n nt)))
+                (if nnt
+                    (aset m qs-c-fmt (qs-default-fmt nnt))
+                  ))
+              )
+            )
+          )
+      (if m (aset m qs-c-fmla "") nil)
+      )
+    ;; set the cval and c-fmtd (for formulas, nt was reset to c-val in fmla above)
     (if m
-        (let ( (nnt (qs-s-to-n nt)))
+        (let ( (nnt (qs-s-to-n nt)) )
           (aset m qs-c-val (if nnt (number-to-string nnt) nt))
           (aset m qs-c-fmtd (qs-format-number (elt m qs-c-fmt) (if nnt nnt nt)))
+
+
           ;;do eval-chain
-          (dolist (a (aref m qs-c-deps))
-            (if (equal a current-cell)
-                nil ;; don't loop infinite
-              (qs-eval-chain a current-cell)))
+          (let ((cell-deps (aref m qs-c-deps)))
+            (dolist (dep cell-deps)
+              (if (not (string= (upcase dep) (upcase current-cell)))
+                  (qs-eval-chain dep (list (upcase current-cell)))
+                )
+              )
+            )
+
+
           )
       (progn
         (setq m (qs-new-cell current-cell))
         (let ( (nnt (qs-s-to-n nt)))
           (if nnt
-              (let ((nf (cond
-                         ((> .001 nnt) "0.00E")
-			 ((> 1 nnt) "0.00%")
-                         ((< (expt 10 12) nnt) "0.00E")
-                         ((< (expt 10 9) nnt) "#,##0.#B")
-                         ((< (expt 10 6) nnt) "#,##0.#M")
-                         ((< 1000 nnt) "#,##0.#k")
-                         (t qs-default-number-fmt)
-                         )))
+              (let ((nf (qs-default-fmt nnt)))
+                (if format (setq nf format))
                 (aset m qs-c-val (number-to-string nnt))
                 (aset m qs-c-fmt nf)
-                (aset m qs-c-fmtd (qs-format-number nf nnt))
+                (aset m qs-c-fmtd (qs-format-number nf nnt ))
                 )
             (progn
               (aset m qs-c-fmtd nt)
               (aset m qs-c-val nt)
-            )))
+              (if format
+                  (aset m qs-c-fmt format))
+              )
+            )
+          )
         (avl-tree-enter qs-data m)
         )
       )
+
     m
     ))
 
@@ -297,25 +442,23 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   "search an xml doc to find nodes with tags that match child-node"
   (let ((match (list (if (string= (car node) child-node) node nil)))
         (children (cddr node)))
-    (if (listp children)
-        (dolist (child children)
-          (if (listp child)
-              (setq match (append match (qs-xml-query child child-node))) nil)
-          ) nil )
-    (delq nil match)))
+    (dolist (child children)
+      (if (listp child)
+          (setq match (append match (qs-xml-query child child-node))) nil)
+      ) nil )
+  (delq nil match))
 
 (defun qs-load (filename)
   "Load a file into the Spreadsheet."
   (interactive "FFilename:")
-  (let ((patterns (list (cons "\\.xlsx$" 'qs-load-xlsx)
-                        (cons "\\.XLSX$" 'qs-load-xlsx)
-                        (cons "\\.csv$" 'qs-load-csv)
-                        (cons "\\.CSV$" 'qs-load-csv)
-                        ))
+  (let ((patterns (list
+                   (cons "\\.XLSX$" 'qs-load-xlsx)
+                   (cons "\\.CSV$" 'qs-load-csv)
+                   ))
         (done nil))
     (dolist (e patterns)
       (if (not done)
-          (setq done  (if (string-match-p (car e) filename)
+          (setq done  (if (string-match-p (car e) (upper filename))
                           (eval (list (cdr e) filename))
                         nil)
                 nil )
@@ -439,7 +582,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
        (if (string-match "\\.csv$" (buffer-file-name))
            (let ((x 0) (cell "") (cl qs-cur-col)
                  (rw qs-cur-row) (j 0)
-                 (re "\\(\"\\([^\"]+\\)\"\\|\\([^,]+\\)\\)[,\n]")
+                 (re " *\\(\"\\([^\"]+\\)\\|\\([^,]+\\)\\) *\"? *[,\n]")
                  (newline "")
                  (split ())
                  (lines ()) )
@@ -449,32 +592,39 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
                (setq newline (thing-at-point 'line))
                (setq split ())
                (setq j 0)
-               (while (and (< j (length newline)) (string-match re newline j))
-                 (setq x (if (match-string 2 newline) 2 1))
-                 (setq cell (match-string x newline))
-                 (setq j (+ 1 (match-end x)))
-                 (add-to-ordered-list 'split cell (+ 1 (length split)))
-                 )
-               (add-to-ordered-list 'lines split (+ 1 (length lines)))
-               (forward-line 1))
+               (if (equal "\n" newline)
+                   (add-to-ordered-list 'lines (list nil ) (+ 1 (length lines)))
+                 (progn
+                   (while (and (< j (length newline)) (string-match re newline j))
+		     (setf x 1)
+		     (while (match-string (+ 1 x) newline)
+		       (setq x (+ 1 x))
+		       )
+                     (setq cell (string-replace "`" "\"" (match-string x newline)))
+                     (setq j (+ 1 (match-end x)))
+                     (add-to-ordered-list 'split cell (+ 1 (length split)))
+                     )
+                   (add-to-ordered-list 'lines split (+ 1 (length lines)))
+                   ))
+               (forward-line 1)
+               )
              (erase-buffer)
              (setq j 1)
              (dolist (line lines)
                (progn
                  (setq x 0)
                  (dolist (cell line)
-                   (progn
-                     (setq qs-cur-col x)
-                     (setq qs-cur-row j)
-                     (qs-update-cell (concat (qs-col-letter x) (int-to-string j)) cell)
-                     (read-only-mode 0)
-                     (setq x (+ x 1))
-                     (if (= qs-max-col x)
-                         (progn
-                           (setq qs-max-col (+ x 1))
-                           (setq qs-col-widths (vconcat qs-col-widths (list 5)))
-                           )
-                       )))
+                   (if cell (progn
+                              (setq qs-cur-col x)
+                              (setq qs-cur-row j)
+                              (qs-update-cell (concat (qs-col-letter x) (int-to-string j)) cell)
+                              (setq x (+ x 1))
+                              (if (= qs-max-col x)
+                                  (progn
+                                    (setq qs-max-col (+ x 1))
+                                    (setq qs-col-widths (vconcat qs-col-widths (list 5)))
+                                    )
+                                ))))
                  (setq j (+ 1 j))
                  ))
              ;; (setq qs-cur-col 0)
@@ -493,32 +643,35 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (defun qs-draw-csv ()
   "Save to a CSV file"
   (let ((fn (buffer-file-name))
-	(empty-lines ()))
+        (empty-lines ()))
     (read-only-mode 0)
     (erase-buffer)
     (dotimes (j qs-max-row) ;; draw buffer
       (let ((line "")
-	    (empty-cells ()))	
+            (empty-cells ()))
         (dotimes (i qs-max-col)
-          (let ((m (avl-tree-member qs-data (qs-addr-to-index (concat (qs-col-letter i) (int-to-string (+ 1 j)))))))
-
-            ( if m
+          (let* (
+                 (m        (avl-tree-member qs-data (qs-addr-to-index (concat (qs-col-letter i) (int-to-string (+ 1 j))))))
+                 (cell-val (if m (if (string= "" (elt m qs-c-fmla)) (elt m qs-c-val) (elt m qs-c-fmla)) nil ))
+                 )
+            ( if (and m (not (string= "" cell-val)))
                 (progn
-		  (setq line (concat (if (not (string= "" line)) (concat line ",") "")
-					(string-join (append empty-cells (list (concat "\"" (if (string= "" (elt m qs-c-fmla)) (elt m qs-c-val) (elt m qs-c-fmla))  "\"" ))) ",")))
-		  (setq empty-cells ())
-		  )
-	      (push "" empty-cells)
-              )))
-	(if (not (string= "" line))
-	    (progn		
-	      (insert (concat (string-join (append empty-lines (list line)) "\n") "\n" ))
-	      (setq empty-lines ())
-	      )
-	  (push "" empty-lines)
-	  )
-    )))
-    (read-only-mode 1))
+                  (if (not (string= "" line)) (push line empty-cells))
+                  (setq line (string-join (append  empty-cells (list (concat "\"" (string-replace "\"" "`" cell-val) "\"" ))) ","))
+                  (setq empty-cells ())
+                  )
+              (push "" empty-cells)
+              )     ))
+
+        (if (not (string= "" line))
+            (progn
+              (insert (concat (string-join (append empty-lines (list line)) "\n") "\n" ))
+              (setq empty-lines ())
+              )
+          (push "" empty-lines)
+          )
+        )))
+  (read-only-mode 1))
 ;;  ____                     _
 ;; |  _ \ _ __ __ ___      _(_)_ __   __ _
 ;; | | | | '__/ _` \ \ /\ / / | '_ \ / _` |
@@ -534,76 +687,86 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
    000000.00  -- pad to six digits (or however many zeros to left of .) round at two digits, or pad out to two
    #,###.0 -- insert a comma (anywhere to the left of the . is fine -- you only need one and it'll comma every three
    0.00## -- Round to four digits, and pad out to at least two."
-  (if (string-match "^ *\\+?-?[0-9,\\.]+ *$" (if (stringp val) val (format "%f1000" val)))
-      (progn
-        (string-match qs-format-re format)
-        (let ((fmt (match-string 1 format))
-              (exp (match-string 2 format))
-              (dec "")) ;;formatted string
-          (let ((value (* (cond
-                           ((equal exp "%") (expt 10 2))
-                           ((equal exp "k") (expt 10.0 -3))
-                           ((equal exp "M") (expt 10.0 -6))
-                           ((equal exp "B") (expt 10.0 -9))
-                           (t 1))
-                          (float (if (numberp val) val (string-to-number val))))))
+  (let ((string-val (if (listp val) " " (if (numberp val) (format "%f1000" val) (if (stringp val) val " ")))))
+    (if (string-match "^ *\\+?-?[0-9,\\.]+ *$" string-val)
+        (progn
+          (string-match qs-format-re format)
+          (let (
+		(neg-type (match-string 1 format))
+		(fmt (match-string 2 format))
+                (exp (match-string 3 format))
+                (dec "")) ;;formatted string
+            (let ((value (* (cond
+                             ((equal exp "%") (expt 10 2))
+                             ((equal exp "k") (expt 10.0 -3))
+                             ((equal exp "M") (expt 10.0 -6))
+                             ((equal exp "B") (expt 10.0 -9))
+                             (t 1))
+                            (float (if (numberp val) val (string-to-number val))))))
 
-            (if (or (equal "E" exp) (equal "e" exp))  ;; scientific notation (1 sig digit)
-                (let ((c 0)
-                      (p 1)
-                      (v value))
-                  (if (= 0 (floor v))
-                      (while (= 0 (floor v))
+              (if (or (equal "E" exp) (equal "e" exp))  ;; scientific notation (1 sig digit)
+                  (let ((c 0)
+                        (p 1)
+                        (v value))
+                    (if (= 0 (or v (floor v)))
+                        (while (= 0 (or v (floor v)))
+                          (progn
+                            (setq c (- c 1))
+                            (setq p (* 10 p))
+                            (setq v (* p value))
+                            ))
+                      (while (> (floor (* (float value) p )) 10)
                         (progn
-                          (setq c (- c 1))
-                          (setq p (* 10 p))
-                          (setq v (* p value))
-                          ))
-                    (while (> (floor (* (float value) p )) 10)
-                      (progn
-                        (setq p (/ (float p) 10.0))
-                        (setq c (+ 1 c))
-                        )))
-                  (setq exp (concat "e"  (if (< 0 c) "+") (int-to-string c)))
-                  (setq value (* value (float p)))
-                  ))
-            (setq dec (number-to-string value))
+                          (setq p (/ (float p) 10.0))
+                          (setq c (+ 1 c))
+                          )))
+                    (setq exp (concat "e"  (if (< 0 c) "+") (int-to-string c)))
+                    (setq value (* value (float p)))
+                    ))
+              (setq dec (number-to-string value))
 
-            (let* ((re "[#,]*\\(0*\\).?\\(0*\\)\\(#*\\)")  ;; Pad out the zeros and round of the #'s
-                   (match (string-match re fmt))
-                   (lz (length (match-string 1 fmt)))
-                   (rz (length (match-string 2 fmt)))
-                   (rh (length (match-string 3 fmt)))
-                   (se (string-match "\\([0-9]*\\)\\.\\([0-9]*\\)" dec))
-                   (ints (match-string 1 dec))
-                   (decs (match-string 2 dec))
-                   )
-              (if (> (length decs) (+ rz rh))  ;;round if decmil too long
-                  (let ((overflow (substring decs (+ rz rh) (+ 1 rz rh)  ))
-                        (save (substring decs 0 (+ rz rh))) )
-                    (if (< 5 (string-to-number overflow))
-                        (progn
-                          (setq decs (int-to-string (+ 1 (string-to-number save)))) ;; round up
-                          (if (< (length decs) (length save)) (dotimes (i (- (length save) (length decs))) (setq decs (concat "0" decs)))  ;;cant drop leading zeros from decmil
-                            (if (> (length decs) (length save))  ;; if round up went past decmil
-                                (let ((carry (substring decs 0 1)))
-                                  (setq decs (substring decs 1 (1+ (length save))))
-                                  (setq ints (int-to-string (+ (string-to-number carry) (string-to-number ints))))
-                                  ))))
-                      (setq decs save))))
-              (if (< (length ints) lz) (dotimes (i (- lz (length ints))) (setq ints (concat "0" ints)))) ;; pad ones
-              (if (< (length decs) rz) (dotimes (i (- lz (length decs))) (setq dec (concat decs "0" )))) ;; pad decmal
-              (setq dec  (if (< 0 (length decs)) (concat ints "." decs) ints))
-              )
-            (if (string-match "," fmt)
-                (let ((re "^\\([0-9]+\\)\\(\\([0-9][0-9][0-9]\\)+\\(,[0-9][0-9][0-9]\\)*\\(\\.[0-9]*\\)?\\)$"))
-                  (while (string-match re dec)
-                    (setq dec (concat (match-string 1 dec) "," (match-string 2 dec)))
-                    ) ) )
-            (if exp
-                (setq dec (concat dec exp)) )
-            dec)))
-    val))
+              (let* ((re "[#,]*\\(0*\\).?\\(0*\\)\\(#*\\)")  ;; Pad out the zeros and round of the #'s
+                     (match (string-match re fmt))
+                     (lz (length (match-string 1 fmt)))
+                     (rz (length (match-string 2 fmt)))
+                     (rh (length (match-string 3 fmt)))
+                     (se (string-match "\\([0-9]*\\)\\.\\([0-9]*\\)" dec))
+                     (ints (match-string 1 dec))
+                     (decs (match-string 2 dec))
+                     )
+                (if (> (length decs) (+ rz rh))  ;;round if decmil too long
+                    (let ((overflow (substring decs (+ rz rh) (+ 1 rz rh)  ))
+                          (save (substring decs 0 (+ rz rh))) )
+                      (if (< 5 (string-to-number overflow))
+                          (progn
+                            (setq decs (int-to-string (+ 1 (string-to-number save)))) ;; round up
+                            (if (< (length decs) (length save)) (dotimes (i (- (length save) (length decs))) (setq decs (concat "0" decs)))  ;;cant drop leading zeros from decmil
+                              (if (> (length decs) (length save))  ;; if round up went past decmil
+                                  (let ((carry (substring decs 0 1)))
+                                    (setq decs (substring decs 1 (1+ (length save))))
+                                    (setq ints (int-to-string (+ (string-to-number carry) (string-to-number ints))))
+                                    ))))
+                        (setq decs save))))
+                (if (< (length ints) lz) (dotimes (i (- lz (length ints))) (setq ints (concat "0" ints)))) ;; pad ones
+                (if (< (length decs) rz) (dotimes (i (- lz (length decs))) (setq dec (concat decs "0" )))) ;; pad decmal
+                (setq dec  (if (< 0 (length decs)) (concat ints "." decs) ints))
+
+                )
+              (if (string-match "," fmt)
+                  (let ((re "^\\([0-9]+\\)\\(\\([0-9][0-9][0-9]\\)+\\(,[0-9][0-9][0-9]\\)*\\(\\.[0-9]*\\)?\\)$"))
+                    (while (string-match re dec)
+                      (setq dec (concat (match-string 1 dec) "," (match-string 2 dec)))
+                      ) ) )
+              (if exp
+                  (setq dec (concat dec exp)) )
+	      (if (> 0 value) 
+		  (setq dec (cond		
+			     ((string= "b" neg-type) (concat "(" dec ")"))
+			     (t (concat "-" dec))
+			     ))
+		)
+              dec)))      
+      val)))
 
 
 
@@ -703,11 +866,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     (qs-draw-all)
     ) )
 
-
-
-
-
-
 (defun qs-draw-cell (x y text)
   "redraw one cell on the ss  - expects  col no. (int), row no, (int), cell value (padded string)"
   (let ((col qs-row-padding) (i 0))
@@ -715,7 +873,6 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     ;;    (pop-to-buffer qs-empty-name nil)
     (setq cursor-type nil)  ;; no cursor
     (setq truncate-lines 1)  ;; no wrap-around
-
     (dotimes (i x) (setq col (+ col (elt qs-col-widths i))) )
     (goto-line (+ y 1))
     (move-to-column col)
@@ -890,19 +1047,24 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
       (progn
         (let ((m (avl-tree-member qs-data  (qs-addr-to-index addr))) )
           (if m (elt m qs-c-val) "0")
-          )))))
+          ))
+      )
+    ))
 
 
 (defun qs-eval-chain (addr chain)
   "Update cell and all deps"
-  (let ((m (avl-tree-member qs-data (qs-addr-to-index addr))) )
+  (let ((cc-addr (upcase (string-replace "$" "" addr)))
+        (m (avl-tree-member qs-data (qs-addr-to-index addr))) )
     (if m
         (progn
           (qs-eval-fun addr)
           (dolist (a (elt m qs-c-deps))
-            (if (member a chain) nil
-              (qs-eval-chain a (append chain (list addr)))
-              ))))))
+            (if (not (listp chain)) (setq chain (list chain)))
+            (if (not (member (upcase (string-replace "$" "" a)) chain))
+                (qs-eval-chain a (append chain (list cc-addr)))
+              )))
+      )))
 
 
 (defun qs-formula-cell-refs (formula)
@@ -913,9 +1075,29 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
          (j 0) (retval (list )))
     (while (string-match qs-cell-or-range-re s j)
       (setq retval (append retval (list (list (match-string 1 s) (match-beginning 1) (match-end 1)))))
-      (setq j (+ 1(match-end 1)))
+      (setq j (match-end 1))
       )
     retval))
+
+(defun qs-calc-eval-error (x) "stringify calc eval error message"
+       (if (listp x) (concat "Error char " (number-to-string (elt x 0)) " :" (elt x 1)) x)
+       )
+
+
+(defun qs-eval-fmla (fmla)
+  "evaluate fmla in calc and return value"
+  (let* ((s (upper (string-replace "$" "" fmla)))
+         (refs (qs-formula-cell-refs s))
+         (cv "")
+         )
+    (dolist (ref refs)
+      (setq cv (qs-cell-val (elt ref 0)))
+      (setq s (concat (substring s 0 (elt ref  1)) cv (substring s (elt ref 2))))
+      )
+    ;;    (print (concat "Eval: " (substring s 1) " \\t to: " (calc-eval (substring s 1))))
+    (setq cv (qs-calc-eval-error (calc-eval (substring s 1))))
+
+    cv))
 
 (defun qs-eval-fun (addr)
   "sets cell value based on its function; draws"
@@ -928,84 +1110,81 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (dolist (ref refs)
             (setq cv (qs-cell-val (elt ref 0)))
             (setq s (concat (substring s 0 (elt ref  1)) cv (substring s (elt ref 2)))))
-          (setq cv (calc-eval (substring s 1)))
+          (setq cv (qs-calc-eval-error (calc-eval (substring s 1))))
+
           (aset m qs-c-val cv)
           (aset m qs-c-fmtd (qs-format-number (elt m qs-c-fmt) cv))
-          (let ((c 0) (i 0) (chra (- (string-to-char "A") 1)))
+          (let ((c 0)
+                (i 0)
+                (chra (- (string-to-char "A") 1)))
             (while (and  (< i (length addr)) (< chra (elt addr i)))
               (setq c (+ (* 26 c)  (- (logand -33 (elt addr i)) chra))) ;; -33 is mask to change case
               (setq i (+ 1 i)))
             (qs-draw-cell (- c 1) (string-to-number (substring addr i))
                           (qs-pad-right (elt m qs-c-fmtd) (- c 1))) )
-          cv ) (aref m qs-c-val)
-          )))
+          cv
+          )
+      (aref m qs-c-val)
+      )))
 
 
 (defun qs-add-dep (ca cc)
   "Add to dep list.
-   CA -- addr to to add
-   CC -- cell who depends"
-  (let ((addr (replace-regexp-in-string "\\$" "" ca)))
-    (if (string-match qs-range-parts-re addr)
-        (progn
-          (let* ((s (qs-addr-to-index (concat  (match-string 1 addr) (match-string 2 addr))))
-                 (cl (- (qs-addr-to-index (concat  (match-string 1 addr) (match-string 4 addr))) s))
-                 (rl (- (qs-addr-to-index (concat  (match-string 3 addr) (match-string 2 addr))) s))
-                 )
-            (if (< cl 0)
-                (progn
-                  (setq cl (* -1 cl))
-                  (setq s (- s cl)) ) nil)
-            (if (< rl 0)
-                (progn
-                  (setq rl (* -1 rl))
-                  (setq s (- s rl))) nil )
-            (setq rl (/ rl qs-max-row))
-            (dotimes (r (+ 1 rl))
-              (dotimes (c (+ 1 cl))
-                (qs-add-dep  (qs-index-to-addr (+ s c (* r qs-max-row))) cc)
-                )
+   CA -- source of information
+   CC -- cell to update when ca changes"
+  (let ((cc-addr (upcase (string-replace "$" "" cc)))
+        (ca-addr (upcase (string-replace "$" "" ca))))
+    (if (string-match "\\([A-Z]+[0-9]+\\):\\([A-Z]+[0-9]+\\)" ca-addr)
+        (let* ((first-cell (qs-addr-to-rowcol (match-string 1 ca-addr)))
+               (secnd-cell (qs-addr-to-rowcol (match-string 2 ca-addr)))
+               (start-col (if (< (elt first-cell 0) (elt secnd-cell 0)) (elt first-cell 0) (elt secnd-cell 0)))
+               (col-len (- (+ 1 (elt first-cell 0) (elt secnd-cell 0))  (* 2 start-col)))
+               (start-row (if (< (elt first-cell 1) (elt secnd-cell 1)) (elt first-cell 1) (elt secnd-cell 1)))
+               (row-len (- (+ 1 (elt first-cell 1) (elt secnd-cell 1))  (* 2 start-row)))
+               )
+          (dotimes (y row-len)
+            (dotimes (x col-len)
+              (qs-add-dep  (qs-rowcol-to-addr (+ x start-col) (+ y start-col)) cc-addr)
               )))
-      (let  ( (m (avl-tree-member qs-data (qs-addr-to-index addr))))
+      (let  ( (m (avl-tree-member qs-data (qs-addr-to-index cc-addr))))
         (if m
-            (let ((od (elt m qs-c-deps)))
-              (if (member cc od) nil
-                (aset m qs-c-deps (append (elt m qs-c-deps) (list cc))) ))
+            (let ((old-deps (elt m qs-c-deps)))
+              (if (not (member cc old-deps) )
+                  (aset m qs-c-deps (append (elt m qs-c-deps) (list ca-addr)))
+                ))
           (progn
-            (setq m (qs-new-cell addr))
-            (aset m qs-c-deps (list cc))
+            (setq m (qs-new-cell cc-addr))
+            (aset m qs-c-deps (list cc-addr))
             (avl-tree-enter qs-data m)
             ))))))
 
 
 (defun qs-del-dep (ca cc)
-  "Remove from dep list."
-  (let ((addr (replace-regexp-in-string "\\$" "" ca)))
-    (if (string-match qs-range-parts-re addr)
-        (progn
-          (let* ((s (qs-addr-to-index (concat  (match-string 1 addr) (match-string 2 addr))))
-                 (cl (- (qs-addr-to-index (concat  (match-string 1 addr) (match-string 4 addr))) s))
-                 (rl (- (qs-addr-to-index (concat  (match-string 3 addr) (match-string 2 addr))) s))
-                 )
-            (if (< cl 0)
-                (progn
-                  (setq cl (* -1 cl))
-                  (setq s (- s cl)) ) nil)
-            (if (< rl 0)
-                (progn
-                  (setq rl (* -1 rl))
-                  (setq s (- s rl))) nil )
-            (setq rl (/ rl qs-max-row))
-            (dotimes (r (+ 1 rl))
-              (dotimes (c (+ 1 cl))
-                (qs-del-dep (qs-index-to-addr (+ s c (* r qs-max-row))) cc)
-                )
-              )))
-      (let  ( (m (avl-tree-member qs-data (qs-addr-to-index addr))))
-        (if
-            (delete cc (aref m qs-c-deps))
-            nil) ))))
-
+  "ca - addr of cell with address
+   cc - addr of cell to remove
+   Remove cc from dep list of celll at ca."
+  (if (and ca (not (string= "" ca)))
+      (let ((cc-addr (upcase (string-replace "$" "" cc)))
+            (ca-addr (upcase (string-replace "$" "" ca))))
+        (if (string-match "\\([A-Z]+[0-9]+\\):\\([A-Z]+[0-9]+\\)" ca-addr)
+            (let* ((first-cell (qs-addr-to-rowcol (match-string 1 ca-addr)))
+                   (secnd-cell (qs-addr-to-rowcol (match-string 2 ca-addr)))
+                   (start-col (if (< (elt first-cell 0) (elt secnd-cell 0)) (elt first-cell 0) (elt secnd-cell 0)))
+                   (col-len (- (+ 1 (elt first-cell 0) (elt secnd-cell 0))  (* 2 start-col)))
+                   (start-row (if (< (elt first-cell 1) (elt secnd-cell 1)) (elt first-cell 1) (elt secnd-cell 1)))
+                   (row-len (- (+ 1 (elt first-cell 1) (elt secnd-cell 1))  (* 2 start-row)))
+                   )
+              (dotimes (y row-len)
+                (dotimes (x col-len)
+                  (qs-del-dep  (qs-rowcol-to-addr (+ x start-col) (+ y start-col)) cc-addr)
+                  )))
+          (let  ( (m (avl-tree-member qs-data (qs-addr-to-index ca-addr))))
+            (if (and m (listp (aref m qs-c-deps)) (member cc-addr (aref m qs-c-deps)))
+                (delete cc-addr (aref m qs-c-deps))
+              )
+            )
+          )))
+  )
 
 
 ;;;###autoload
@@ -1065,8 +1244,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   )
 
 
-(defun HELLO (x)  
-  (concat \"hello \" x ) 
+(defun HELLO (x)
+  (concat \"hello \" x )
   )
 
 ;; (defmath STOCK (stock)
@@ -1088,3 +1267,12 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 (push (cons "\\.CSV$" 'qs-mode) auto-mode-alist)
 
 ;;; qs-mode.el ends here
+
+
+
+
+;(defmath hello (name) "name" (interactive)
+;  (concat "hello " name))
+
+
+  
