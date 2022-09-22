@@ -1,7 +1,7 @@
 qs-mode
 =======
 
-This is a spreadsheet like interface to calc.  The point is to have a spreadshet-like interface to calc that will do for quick calcuations.
+This is a spreadsheet like interface to calc to use for quick calcuations.
 
 
 Selling points:
