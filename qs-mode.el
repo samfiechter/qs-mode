@@ -35,6 +35,7 @@
 (defvar qs-lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
 
 ;; status vars
+(defvar qs-col-limit 16384)
 (defvar qs-cur-sheet nil)
 (defvar qs-cur-col 0)
 (defvar qs-max-col 3)
@@ -127,7 +128,7 @@
                  (while (and  (< i (length a)) (< chra (elt a i)))
                    (setq out (+ (* 26 out)  (- (logand qs-lcmask (elt a i)) chra))) ;; -33 is mask to change case
                    (setq i (+ 1 i)))
-                 (setq out (+ (* out qs-max-row) (floor (string-to-number (substring a i)))))
+                 (setq out (+ (* out qs-col-limit) (floor (string-to-number (substring a i)))))
                  out))
            a )))
 
@@ -135,7 +136,7 @@
   "Convert form ss index to addr (eg A1) -- expects integer"
   (if (integer-or-marker-p idx)
       (let* ((row (% idx qs-max-row))
-             (col (- (/ (- idx row) qs-max-row) 1)))
+             (col (- (/ (- idx row) qs-col-limit) 1)))
         (concat (qs-col-letter col) (int-to-string row))
         ) "A1") )
 
