@@ -35,7 +35,8 @@
 (defvar qs-lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
 
 ;; status vars
-(defvar qs-col-limit 16384)
+(defvar qs-col-limit 16384)  ;;max possible size
+(defvar qs-row-limit (/ most-positive-fixnum qs-col-limit))
 (defvar qs-cur-sheet nil)
 (defvar qs-cur-col 0)
 (defvar qs-max-col 3)
@@ -103,7 +104,7 @@
        (concat (qs-col-letter  col) (int-to-string row)))
 
 (defun qs-rowcol-to-index (col row) "return the index for row col"
-       (+ (* qs-max-row (+ 1 col)) row))
+       (+ (* qs-row-limit (+ 1 col)) row))
 
 (defun qs-addr-to-rowcol (a) "return (col row) from addr"
        (let ((chra (string-to-char "A") )
@@ -128,15 +129,15 @@
                  (while (and  (< i (length a)) (< chra (elt a i)))
                    (setq out (+ (* 26 out)  (- (logand qs-lcmask (elt a i)) chra))) ;; -33 is mask to change case
                    (setq i (+ 1 i)))
-                 (setq out (+ (* out qs-col-limit) (floor (string-to-number (substring a i)))))
+                 (setq out (+ (* out qs-row-limit) (floor (string-to-number (substring a i)))))
                  out))
            a )))
 
 (defun qs-index-to-addr (idx)
   "Convert form ss index to addr (eg A1) -- expects integer"
   (if (integer-or-marker-p idx)
-      (let* ((row (% idx qs-max-row))
-             (col (- (/ (- idx row) qs-col-limit) 1)))
+      (let* ((row (% idx qs-row-limit))
+             (col (- (/ (- idx row) qs-row-limit) 1)))
         (concat (qs-col-letter col) (int-to-string row))
         ) "A1") )
 
@@ -702,7 +703,7 @@
         (progn
           (insert (qs-highlight (format (concat "%" (int-to-string qs-row-padding) "d") j) ))
           (dotimes (i qs-max-col)
-            (let ((m (avl-tree-member qs-data (+ j (* qs-max-row (+ i 1))))))
+            (let ((m (avl-tree-member qs-data (qs-rowcol-to-index i j))) )
               (let ((s (if m
                            (qs-pad-right (elt m qs-c-fmtd) i)
                          (make-string (elt qs-col-widths i) (string-to-char " "))
@@ -727,7 +728,7 @@
   (let ((y 1)
         (len 3) )
     (while (< y qs-max-row)
-      (let ((m (avl-tree-member qs-data (+ y (* qs-max-row (+ 1 qs-cur-col))))))
+      (let ((m (avl-tree-member qs-data (qs-rowcol-to-index qs-cur-col y))) )
         (if m
             (let ((str (concat "   " (elt m qs-c-fmtd))))
               (if (< len (length str))
@@ -794,7 +795,7 @@
        (goto-char 0)
        (let* ((new-row (+ qs-cur-row y))
               (new-col (+ qs-cur-col x))
-              (n (avl-tree-member qs-data (+ new-row (* qs-max-row (+ 1 new-col)))))
+              (n (avl-tree-member qs-data (qs-rowcol-to-index new-col new-row )))
               (row-pos (line-beginning-position (+ 1 new-row)))
               (cur-mesg "")
               (col-pos (+ 4 (if (> new-col 0) (apply '+ (mapcar (lambda (x) (elt qs-col-widths x)) (number-sequence 0 (- new-col 1)))) 0))) )
@@ -826,7 +827,7 @@
                                              ":" (qs-col-letter qs-cur-col) (int-to-string qs-cur-row)))
                  ))
            ;; Mark Not set...
-           (let ((n (avl-tree-member qs-data (+ new-row (* qs-max-row (+ 1 new-col))))))
+           (let ((n (avl-tree-member qs-data (qs-rowcol-to-index new-col new-row))))
              (if (overlayp qs-cursor)
                  (move-overlay qs-cursor (+ row-pos col-pos) (+ row-pos col-pos (elt qs-col-widths new-col)))
                (progn
@@ -1044,7 +1045,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
             (dotimes (r (+ 1 rl))
               (setq rv (concat rv "["))
               (dotimes (c (+ 1 cl))
-                (setq m (avl-tree-member qs-data (+ s c (* qs-max-row r))))
+                (setq m (avl-tree-member qs-data (qs-rowcol-to-index r (+ s c))))
                 (setq rv (concat rv (if m (elt m qs-c-val) "0") (if (= c cl) "]" ",") ))
                 )
               (setq rv (concat rv (if (= r rl) "]" ",")))
