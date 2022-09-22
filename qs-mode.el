@@ -20,7 +20,7 @@
 
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "#0.00M" "= 3 /2" (list of cells to calc when changes)]
 ;;   0 = index / cell Name
-(defvar qs-c-addr 0)
+(defvar qs-c-index 0)
 ;;   1 = value (formatted)
 (defvar qs-c-fmtd 1)
 ;;   2 = value (number)
@@ -90,145 +90,12 @@
 ;;
 
 (defun qs-new-cell (addr) "Blank cell"
-       (vector addr "" "" qs-default-number-fmt "" (list) )
+       (vector (qs-addr-to-index addr) "" "" qs-default-number-fmt "" (list) )
        )
-
-
-
-(defun qs-clear-area () "delete current cell or marked range" (interactive)
-       (let* ((start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
-              (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
-              (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
-              (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
-              (rows ()))
-         (dotimes (y row-len)
-           (dotimes (x col-len)
-             (let* ((del-cell-addr (qs-rowcol-to-addr (+ x start-col) (+ y start-row)))
-                    (del-cell-index (qs-rowcol-to-index (+ x start-col) (+ y start-row)))
-                    )
-               (qs-update-cell del-cell-addr "" "")
-               )))
-         (setq qs-mark-cell nil)
-         (qs-draw-all)
-         (set-buffer-modified-p 1)
-         )
-       )
-
-(defun qs-cut-area () "cut currrent cell or marked area" (iteractive)
-       (qs-copy-area)
-       (qs-clear-area)
-       (setq qs-mark-cell nil)
-       (qs-draw-all)
-       )
-
-(defun qs-copy-area () "copy current cell or marked range into the copy buffer" (interactive)
-       (let* ((start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
-              (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
-              (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
-              (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
-              (this-cell "")
-              (rows ()))
-         (dotimes (y row-len)
-           (let ((ccols ()))
-             (dotimes (x col-len)
-               (setq this-cell (qs-rowcol-to-index (+ x start-col) (+ y start-row)))
-               (setq ccols (append ccols (list (avl-tree-member qs-data this-cell))))
-               )
-             (setq rows (append rows (list ccols)))
-             )
-           )
-         (setq qs-copy-buffer rows)
-         (setq qs-mark-cell nil)
-         ))
-
-(defun qs-transform-fmla (from-addr to-addr fmla)
-  "transform a function from from to to moving all addresses relative to the addresses
-EX:  From: A1 To: B1 Fun: = A2 / B1
-     Returns: = B2 / C1 "
-  (let* ((from-rc (qs-addr-to-rowcol from-addr))
-         (to-rc (qs-addr-to-rowcol to-addr))
-         (col-delta (- (elt to-rc 0) (elt from-rc 0)))
-         (row-delta (- (elt to-rc 1) (elt from-rc 1)))
-         (cell-ref-re "\\($?[A-Za-z]+\\)\\($?[0-9]+\\)")
-         (i 0)
-         (flen (length fmla))
-         (new-fmla "")
-         (end-flma "")
-         (worked t)
-         )
-
-    (while (and (< i (length fmla)) (string-match cell-ref-re fmla i))
-      (let* ((old-addr-col (match-string 1 fmla))
-             (old-addr-row (match-string 2 fmla))
-             (old-col-row (qs-addr-to-rowcol (string-replace "$" "" (concat old-addr-col old-addr-row))))
-             (newcol (if (not (equal (string-to-char "$") (elt old-addr-col 0))) (+ (elt old-col-row 0) col-delta) (elt old-col-row 0)))
-             (newrow (if (not (equal (string-to-char "$") (elt old-addr-row 0))) (+ (elt old-col-row 1) row-delta) (elt old-col-row 1)))
-             (mat-end (match-end 0 ))
-             )
-        (if (or (not worked) (< newcol 0) (< newrow 1))
-            (progn
-              (setq worked nil)
-              (setq i (+ 1 (length fmla))) )
-          (progn
-            (setq new-fmla (concat new-fmla
-                                   (substring fmla i (match-beginning 0 ))
-                                   (if (equal (string-to-char "$") (elt old-addr-col 0)) "$")
-                                   (qs-col-letter newcol)
-                                   (if (equal (string-to-char "$") (elt old-addr-row 0)) "$")
-                                   (int-to-string newrow)))
-            (if (and mat-end (< mat-end flen)) (setq end-fmla (substring fmla mat-end flen)))
-            (setq i mat-end)
-            ) )
-        ))
-    (if end-fmla  (setq new-fmla (concat new-fmla end-fmla)))
-    (if worked new-fmla worked)
-    ))
-
-
-
-(defun qs-paste-area () "paste the copy buffer into the sheet" (interactive)
-       (if qs-copy-buffer
-           (let* (
-                  (paste-rows (length qs-copy-buffer))
-                  (paste-cols (length (elt qs-copy-buffer 0)))
-                  (start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
-                  (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
-                  (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
-                  (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
-                  (copy-elt-y 0)
-                  (copy-elt-x 0)
-                  )
-             (if (equal col-len 1) (setq col-len paste-cols))
-             (if (equal row-len 1) (setq row-len paste-rows))
-             (dotimes (y row-len)
-               (let ((row (elt qs-copy-buffer copy-elt-y)) )
-                 (dotimes (x col-len)
-                   (let ((cell (elt row copy-elt-x)) )
-                     (if cell
-                         (let* (
-                                (addr (qs-rowcol-to-addr  (+ x start-col) (+ y start-row)))
-                                (cell-fmla  (elt cell qs-c-fmla))
-                                (fmla (if (or (not cell-fmla) (string= "" cell-fmla)) ""
-                                        (qs-transform-fmla (elt cell qs-c-addr) addr cell-fmla)))
-                                (txt  (if (and fmla (not (string= "" fmla))) fmla (elt cell qs-c-val)))
-                                (fmt  (if (string= "" (elt cell qs-c-fmt)) nil (elt cell qs-c-fmt)))
-                                (m (qs-update-cell addr txt fmt))
-                                )
-                           (setq copy-elt-x (if (eql  (+ 1 copy-elt-x) paste-cols) 0 (+ 1 copy-elt-x)))
-                           ))))
-                 (setq copy-elt-y (if (eql (+ 1 copy-elt-y)  paste-rows ) 0 (+ 1 copy-elt-y)))
-                 ))
-             )
-         )
-       (setq qs-mark-cell nil)
-       (qs-draw-all)
-       )
-
-
 (defun qs-avl-cmp (a b)
   "This is the function used by avl tree to compare ss addresses"
-  (let ((A (if (sequencep a) (elt a qs-c-addr) a)) (B (if (sequencep b) (elt b qs-c-addr) b)))  ; a or b can be vectors or addresses
-    (< (qs-addr-to-index A) (qs-addr-to-index B)) ))
+  (let ((A (if (sequencep a) (elt a qs-c-index) a)) (B (if (sequencep b) (elt b qs-c-index) b)))  ; a or b can be vectors or addresses
+    (< A  B) ))
 
 
 (defun qs-rowcol-to-addr ( col row ) "return the cell address (eg A1) form row and col)"
@@ -436,6 +303,12 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
     m
     ))
 
+;;  _____ _ _        ___    _____  	
+;; |  ___(_) | ___  |_ _|  / / _ \ 	
+;; | |_  | | |/ _ \  | |  / / | | |	
+;; |  _| | | |  __/  | | / /| |_| |	
+;; |_|   |_|_|\___| |___/_/  \___/ 	
+                                	
 
 
 (defun qs-xml-query (node child-node)
@@ -640,8 +513,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
              (qs-draw-all)
              )) nil )
 
-(defun qs-draw-csv ()
-  "Save to a CSV file"
+(defun qs-save-csv ()
+  "Draw the buffer in CSV format for before-save-hook"
   (let ((fn (buffer-file-name))
         (empty-lines ()))
     (read-only-mode 0)
@@ -969,6 +842,137 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
          (minibuffer-message cur-mesg)
          ))
 
+
+(defun qs-clear-area () "delete current cell or marked range" (interactive)
+       (let* ((start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
+              (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
+              (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
+              (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
+              (rows ()))
+         (dotimes (y row-len)
+           (dotimes (x col-len)
+             (let* ((del-cell-addr (qs-rowcol-to-addr (+ x start-col) (+ y start-row)))
+                    (del-cell-index (qs-rowcol-to-index (+ x start-col) (+ y start-row)))
+                    )
+               (qs-update-cell del-cell-addr "" "")
+               )))
+         (setq qs-mark-cell nil)
+         (qs-draw-all)
+         (set-buffer-modified-p 1)
+         )
+       )
+
+(defun qs-cut-area () "cut currrent cell or marked area" (iteractive)
+       (qs-copy-area)
+       (qs-clear-area)
+       (setq qs-mark-cell nil)
+       (qs-draw-all)
+       )
+
+(defun qs-copy-area () "copy current cell or marked range into the copy buffer" (interactive)
+       (let* ((start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
+              (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
+              (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
+              (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
+              (this-cell "")
+              (rows ()))
+         (dotimes (y row-len)
+           (let ((ccols ()))
+             (dotimes (x col-len)
+               (setq this-cell (qs-rowcol-to-index (+ x start-col) (+ y start-row)))
+               (setq ccols (append ccols (list (avl-tree-member qs-data this-cell))))
+               )
+             (setq rows (append rows (list ccols)))
+             )
+           )
+         (setq qs-copy-buffer rows)
+         (setq qs-mark-cell nil)
+         ))
+
+(defun qs-transform-fmla (from-addr to-addr fmla)
+  "transform a function from from to to moving all addresses relative to the addresses
+EX:  From: A1 To: B1 Fun: = A2 / B1
+     Returns: = B2 / C1 "
+  (let* ((from-rc (qs-addr-to-rowcol from-addr))
+         (to-rc (qs-addr-to-rowcol to-addr))
+         (col-delta (- (elt to-rc 0) (elt from-rc 0)))
+         (row-delta (- (elt to-rc 1) (elt from-rc 1)))
+         (cell-ref-re "\\($?[A-Za-z]+\\)\\($?[0-9]+\\)")
+         (i 0)
+         (flen (length fmla))
+         (new-fmla "")
+         (end-flma "")
+         (worked t)
+         )
+
+    (while (and (< i (length fmla)) (string-match cell-ref-re fmla i))
+      (let* ((old-addr-col (match-string 1 fmla))
+             (old-addr-row (match-string 2 fmla))
+             (old-col-row (qs-addr-to-rowcol (string-replace "$" "" (concat old-addr-col old-addr-row))))
+             (newcol (if (not (equal (string-to-char "$") (elt old-addr-col 0))) (+ (elt old-col-row 0) col-delta) (elt old-col-row 0)))
+             (newrow (if (not (equal (string-to-char "$") (elt old-addr-row 0))) (+ (elt old-col-row 1) row-delta) (elt old-col-row 1)))
+             (mat-end (match-end 0 ))
+             )
+        (if (or (not worked) (< newcol 0) (< newrow 1))
+            (progn
+              (setq worked nil)
+              (setq i (+ 1 (length fmla))) )
+          (progn
+            (setq new-fmla (concat new-fmla
+                                   (substring fmla i (match-beginning 0 ))
+                                   (if (equal (string-to-char "$") (elt old-addr-col 0)) "$")
+                                   (qs-col-letter newcol)
+                                   (if (equal (string-to-char "$") (elt old-addr-row 0)) "$")
+                                   (int-to-string newrow)))
+            (if (and mat-end (< mat-end flen)) (setq end-fmla (substring fmla mat-end flen)))
+            (setq i mat-end)
+            ) )
+        ))
+    (if end-fmla  (setq new-fmla (concat new-fmla end-fmla)))
+    (if worked new-fmla worked)
+    ))
+
+
+
+(defun qs-paste-area () "paste the copy buffer into the sheet" (interactive)
+       (if qs-copy-buffer
+           (let* (
+                  (paste-rows (length qs-copy-buffer))
+                  (paste-cols (length (elt qs-copy-buffer 0)))
+                  (start-col (if qs-mark-cell (if (< qs-cur-col (elt qs-mark-cell 0)) qs-cur-col (elt qs-mark-cell 0)) qs-cur-col))
+                  (col-len (if qs-mark-cell (- (+ 1 qs-cur-col (car qs-mark-cell)) (* 2 start-col)) 1))
+                  (start-row (if qs-mark-cell (if (< qs-cur-row (elt qs-mark-cell 1)) qs-cur-row (elt qs-mark-cell 1)) qs-cur-row))
+                  (row-len (if qs-mark-cell (- (+ 1 qs-cur-row (elt qs-mark-cell 1)) (* 2 start-row)) 1))
+                  (copy-elt-y 0)
+                  (copy-elt-x 0)
+                  )
+             (if (equal col-len 1) (setq col-len paste-cols))
+             (if (equal row-len 1) (setq row-len paste-rows))
+             (dotimes (y row-len)
+               (let ((row (elt qs-copy-buffer copy-elt-y)) )
+                 (dotimes (x col-len)
+                   (let ((cell (elt row copy-elt-x)) )
+                     (if cell
+                         (let* (
+                                (addr (qs-rowcol-to-addr  (+ x start-col) (+ y start-row)))
+                                (cell-fmla  (elt cell qs-c-fmla))
+                                (fmla (if (or (not cell-fmla) (string= "" cell-fmla)) ""
+                                        (qs-transform-fmla (qs-index-to-addr (elt cell qs-c-index)) addr cell-fmla)))
+                                (txt  (if (and fmla (not (string= "" fmla))) fmla (elt cell qs-c-val)))
+                                (fmt  (if (string= "" (elt cell qs-c-fmt)) nil (elt cell qs-c-fmt)))
+                                (m (qs-update-cell addr txt fmt))
+                                )
+                           (setq copy-elt-x (if (eql  (+ 1 copy-elt-x) paste-cols) 0 (+ 1 copy-elt-x)))
+                           ))))
+                 (setq copy-elt-y (if (eql (+ 1 copy-elt-y)  paste-rows ) 0 (+ 1 copy-elt-y)))
+                 ))
+             )
+         )
+       (setq qs-mark-cell nil)
+       (qs-draw-all)
+       )
+
+
 (defun qs-increase-cur-col ()
   "Increase the width of the current column" (interactive)
   (aset qs-col-widths qs-cur-col (+ 1 (elt qs-col-widths qs-cur-col)))
@@ -1084,7 +1088,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
        )
 
 
-(defun qs-eval-fmla (fmla)
+(defun qs-eval (fmla)
   "evaluate fmla in calc and return value"
   (let* ((s (upper (string-replace "$" "" fmla)))
          (refs (qs-formula-cell-refs s))
@@ -1211,7 +1215,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (setq qs-max-row 30)
   (setq qs-row-padding 4)
   (setq qs-data (avl-tree-create 'qs-avl-cmp))
-  (add-hook 'before-save-hook 'qs-draw-csv 90 1)
+  (add-hook 'before-save-hook 'qs-save-csv 90 1)
   (add-hook 'after-save-hook 'qs-draw-all 90 1)
   (if (and (buffer-file-name) (qs-read-csv-buffer))
 
@@ -1268,11 +1272,8 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 ;;; qs-mode.el ends here
 
-
-
-
-;(defmath hello (name) "name" (interactive)
-;  (concat "hello " name))
+;; (defmath hello (name) "name" (interactive)
+;;   (concat "hello " name))
 
 
   
