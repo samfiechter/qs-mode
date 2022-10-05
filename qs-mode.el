@@ -9,6 +9,7 @@
 
 ;;;Code
 (require 'avl-tree)
+
 ;; ;;;;;;;;;;;;; variables ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; pseudo constants
 (defvar qs-range-parts-re "\\([A-Za-z]+\\)\\([0-9]+\\)\\:\\([A-Za-z]+\\)\\([0-9]+\\)")
@@ -17,26 +18,28 @@
 (defvar qs-cell-or-range-re (concat "[^A-Za-z0-9]?\\(" qs-range-re  "\\|" qs-one-cell-re  "\\)[^A-Za-z0-9\(]?"))
 (defvar qs-empty-name "Quick Spreadsheet")
 (defvar qs-format-re "\\([-b]\\)\\([#,]*0*.?0*#*\\) ?\\([\\%kMBE]\\)? *")
+(defvar qs-highlight-face '((:foreground "White") (:background "Blue")))
+(defvar qs-row-highlight-face '((:foreground "#2f3036") (:background "#e6eafa")))
 
+
+
+(defvar qs-data (avl-tree-create 'qs-avl-cmp)) ;;data-store.  vectors of cells in format below:
+(defvar qs-sheets (list )) ;; list of qs-data
 ;;       CELL Format -- [ "A1" 0.5 "= 1/2" "#0.00M" "= 3 /2" (list of cells to calc when changes)]
-;;   0 = index / cell Name
-(defvar qs-c-index 0)
-;;   1 = value (formatted)
-(defvar qs-c-fmtd 1)
-;;   2 = value (number)
-(defvar qs-c-val 2)
-;;   3 = format (TBD)
-(defvar qs-c-fmt 3)
-;;   4 = formula
-(defvar qs-c-fmla 4)
-;;   5 = depends on -- list of indexes
-(defvar qs-c-deps 5)
+(defvar qs-c-index 0)  ;;   0 = index / cell Namen
+(defvar qs-c-fmtd 1)   ;;   1 = value (formatted text)
+(defvar qs-c-val 2)    ;;   2 = value (number)
+(defvar qs-c-fmt 3)    ;;   3 = format (TBD)
+(defvar qs-c-fmla 4)   ;;   4 = formula
+(defvar qs-c-deps 5)   ;;   5 = depends on -- list of indexes
 
+;; constants
 (defvar qs-lcmask (lognot (logxor (string-to-char "A") (string-to-char "a"))))
-
-;; status vars
 (defvar qs-col-limit 16384)  ;;max possible size
 (defvar qs-row-limit (/ most-positive-fixnum qs-col-limit))
+
+
+;; status vars
 (defvar qs-cur-sheet nil)
 (defvar qs-cur-col 0)
 (defvar qs-max-col 3)
@@ -45,8 +48,9 @@
 (defvar qs-cur-row 1)
 (defvar qs-max-row 3)
 (defvar qs-row-padding 5)
-(defvar qs-sheets (list )) ;; list of qs-data
-(defvar qs-data (avl-tree-create 'qs-avl-cmp))
+(defvar qs-minibufferp nil)
+
+
 (defvar qs-default-number-fmt "-#,##0.########")
 (defvar qs-cursor nil)
 (defvar qs-copy-buffer ())
@@ -59,6 +63,7 @@
 
 (defvar qs-map  (make-sparse-keymap 'qs-map))
 
+(set-keymap-parent qs-map text-mode-map)
 (define-key qs-map [left]       'qs-move-left)
 (define-key qs-map [right]      'qs-move-right)
 (define-key qs-map [tab]        'qs-move-right)
@@ -75,7 +80,19 @@
 (define-key qs-map (kbd "C-w") 'qs-cut-area)
 (define-key qs-map (kbd "M-w") 'qs-copy-area)
 (define-key qs-map (kbd "C-y") 'qs-paste-area)
-
+(define-key qs-map [kp-0] (lambda () (interactive) (setq last-input-event (string-to-char "0")) (qs-edit-cell)))
+(define-key qs-map [kp-1] (lambda () (interactive) (setq last-input-event (string-to-char "1")) (qs-edit-cell)))
+(define-key qs-map [kp-2] (lambda () (interactive) (setq last-input-event (string-to-char "2")) (qs-edit-cell)))
+(define-key qs-map [kp-3] (lambda () (interactive) (setq last-input-event (string-to-char "3")) (qs-edit-cell)))
+(define-key qs-map [kp-4] (lambda () (interactive) (setq last-input-event (string-to-char "4")) (qs-edit-cell)))
+(define-key qs-map [kp-5] (lambda () (interactive) (setq last-input-event (string-to-char "5")) (qs-edit-cell)))
+(define-key qs-map [kp-6] (lambda () (interactive) (setq last-input-event (string-to-char "6")) (qs-edit-cell)))
+(define-key qs-map [kp-7] (lambda () (interactive) (setq last-input-event (string-to-char "7")) (qs-edit-cell)))
+(define-key qs-map [kp-8] (lambda () (interactive) (setq last-input-event (string-to-char "8")) (qs-edit-cell)))
+(define-key qs-map [kp-9] (lambda () (interactive) (setq last-input-event (string-to-char "9")) (qs-edit-cell)))
+(define-key qs-map [kp-enter] 'enter)
+(define-key qs-map [mouse-1] 'qs-mouse-click)
+(define-key qs-map [drag-mouse-1] 'qs-mouse-click)
 
 ;;(define-key qs-map [C-R]        'qs-search-buffer)
 
@@ -122,16 +139,11 @@
 
 
 (defun qs-addr-to-index (a)  "Convert from ss addr (e.g. A1) to index  -- expects [A-Z]+[0-9]+"
-       (let ((chra (- (string-to-char "A") 1)))
-         (if (sequencep a)
-             (progn
-               (let ((out 0) (i 0))
-                 (while (and  (< i (length a)) (< chra (elt a i)))
-                   (setq out (+ (* 26 out)  (- (logand qs-lcmask (elt a i)) chra))) ;; -33 is mask to change case
-                   (setq i (+ 1 i)))
-                 (setq out (+ (* out qs-row-limit) (floor (string-to-number (substring a i)))))
-                 out))
-           a )))
+       (let* ((rc (qs-addr-to-rowcol a))
+              (row (elt rc 1))
+              (col (elt rc 0))
+              )
+         (qs-rowcol-to-index col row)))
 
 (defun qs-index-to-addr (idx)
   "Convert form ss index to addr (eg A1) -- expects integer"
@@ -161,6 +173,89 @@
       (setq out (concat (char-to-string (+ chra (% a 26))) out))
       (setq a  (- (/ a 26) 1)) )
     out ))
+
+
+(defun qs-to-int (w)
+  (truncate (if (numberp w) w (floor (string-to-number w)))))
+
+
+(defun qs-s-to-n (str) "converts a string to a number"
+       (if (string-match "^ *\\([0123456789\\.,]+\\) ?\\([kMB%]\\|[eE][\\+-]?[0123456789]+\\)? *$" str)
+           (let ((exp (match-string 2 str))
+                 (num (string-to-number (string-replace "," "" (match-string 1 str))) )
+                 (p 1))
+             (if exp
+                 (progn
+                   (if (string-match "[eE]\\([\\+-]\\)?\\([0123456789]+\\)" exp)
+                       (let ((sign (match-string 1 exp))
+                             (power (match-string 2 exp))
+                             (p 1))
+                         (dotimes (i (string-to-number power))
+                           (setq p (* 10 p)))
+                         (if (equal "-" sign)
+                             (setq p  (/ 1 (float p))))
+                         (setq num (* p num)))
+                     (setq p (cond
+                              ((equal exp "%") .01)
+                              ((equal exp "k") 1000)
+                              ((equal exp "M") 1000000)
+                              ((equal exp "B") 1000000000)
+                              (t 1)
+                              ))
+                     )
+                   (setq num (* p (float num)))
+                   ))
+             num)))
+
+
+
+;;  _  __              _             _
+;; | |/ /___ _   _ ___| |_ _ __ ___ | | _____  ___
+;; | ' // _ \ | | / __| __| '__/ _ \| |/ / _ \/ __|
+;; | . \  __/ |_| \__ \ |_| | | (_) |   <  __/\__ \
+;; |_|\_\___|\__, |___/\__|_|  \___/|_|\_\___||___/
+;;           |___/
+
+
+(defun qs-mouse-click ()
+  "set current mouse postition" (interactive)
+  (let* (
+         (event last-input-event)
+         (start (event-start event))
+         (end (event-end event))
+         (pos-st (if (posn-actual-col-row start) (posn-actual-col-row start) (posn-col-row start)))
+         (pos-ed (if (posn-actual-col-row end) (posn-actual-col-row end) (posn-col-row end)))
+         (pre-string "")
+         )
+
+
+    (if qs-minibufferp
+        (progn  ;;If in minibuffer (add to string)
+          (select-window (active-minibuffer-window))
+          (if (and (equal (car pos-st) (car pos-ed))
+                   (equal (cdr pos-st) (cdr pos-ed)))
+              (insert (qs-rowcol-to-addr (qs-screen-to-col (car pos-st)) (cdr pos-st)))
+            (insert (concat (qs-rowcol-to-addr (qs-screen-to-col (car pos-st)) (cdr pos-st)) ":" (qs-rowcol-to-addr (qs-screen-to-col (car pos-ed)) (cdr pos-ed))))
+            ) )
+      (progn  ;; No mini just mark
+        (if (and (equal (car pos-st) (car pos-ed)))
+            (progn  ;; if in
+              (setq qs-mark-cell nil)
+              (setq qs-cur-col (qs-screen-to-col (car pos-st)))
+              (setq qs-cur-row (if (= 0 (cdr pos-st)) 1 (cdr pos-st)))
+              )
+          (progn ;;drag
+            (setq qs-mark-cell (list (qs-screen-to-col (car pos-st)) (cdr pos-st)))
+            (setq qs-cur-col (qs-screen-to-col (car pos-ed)))
+            (setq qs-cur-row (cdr pos-ed))
+            )
+          )
+        (qs-draw-all)
+        )
+      )))
+
+
+
 
 (defun qs-edit-format ( )
   "edit the format of the selected cell" (interactive)
@@ -198,25 +293,15 @@
             (ot (if m (if (string= "" (elt m qs-c-fmla)) (elt m qs-c-val) (elt m qs-c-fmla)) "" ))
             (nt 1) )
     (setq nt (if (equal 'return last-input-event)
-                 (read-string prompt ot  qs-input-history )
+                 (read-string
+                  prompt ot  qs-input-history )
                (read-string prompt (char-to-string last-input-event) qs-input-history )))
                                         ;  (add-to-history qs-input-history nt)
+                                        ;    (if (not (string-
     (setq m (qs-update-cell current-cell nt))
     (qs-draw-cell qs-cur-col qs-cur-row (qs-pad-right (elt m qs-c-fmtd) qs-cur-col))
     (qs-move-down)
     ))
-(defun qs-default-fmt (num ) "get a default format for a number"
-       (let ((nnt (if (numberp num) num (qs-s-to-n num))))
-         (cond
-          ((> .001 nnt) "-0.00E")
-          ((> 1 nnt) "-0.00%")
-          ((< (expt 10 12) nnt) "-0.00E")
-          ((< (expt 10 9) nnt) "b#,##0.#B")
-          ((< (expt 10 6) nnt) "b#,##0.#M")
-          ((< 1000 nnt) "b#,##0.#k")
-          (t qs-default-number-fmt)
-          ))
-       )
 
 (defun qs-update-cell (current-cell nt &optional format)
   "Update the value/formula  of current cell to nt"
@@ -305,12 +390,12 @@
     m
     ))
 
-;;  _____ _ _        ___    _____  	
-;; |  ___(_) | ___  |_ _|  / / _ \ 	
-;; | |_  | | |/ _ \  | |  / / | | |	
-;; |  _| | | |  __/  | | / /| |_| |	
-;; |_|   |_|_|\___| |___/_/  \___/ 	
-                                	
+;;  _____ _ _        ___    _____
+;; |  ___(_) | ___  |_ _|  / / _ \
+;; | |_  | | |/ _ \  | |  / / | | |
+;; |  _| | | |  __/  | | / /| |_| |
+;; |_|   |_|_|\___| |___/_/  \___/
+
 
 
 (defun qs-xml-query (node child-node)
@@ -339,9 +424,6 @@
                 nil )
         nil)
       )))
-
-(defun qs-to-int (w)
-  (truncate (if (numberp w) w (floor (string-to-number w)))))
 
 (defun qs-load-xlsx (filename )
   "Try and read an XLSX file into qs-mode"
@@ -471,10 +553,10 @@
                    (add-to-ordered-list 'lines (list nil ) (+ 1 (length lines)))
                  (progn
                    (while (and (< j (length newline)) (string-match re newline j))
-		     (setf x 1)
-		     (while (match-string (+ 1 x) newline)
-		       (setq x (+ 1 x))
-		       )
+                     (setf x 1)
+                     (while (match-string (+ 1 x) newline)
+                       (setq x (+ 1 x))
+                       )
                      (setq cell (string-replace "`" "\"" (match-string x newline)))
                      (setq j (+ 1 (match-end x)))
                      (add-to-ordered-list 'split cell (+ 1 (length split)))
@@ -522,29 +604,29 @@
     (read-only-mode 0)
     (erase-buffer)
     (dotimes (j qs-max-row) ;; draw buffer
+
       (let ((line "")
             (empty-cells ()))
         (dotimes (i qs-max-col)
           (let* (
-                 (m        (avl-tree-member qs-data (qs-addr-to-index (concat (qs-col-letter i) (int-to-string (+ 1 j))))))
-                 (cell-val (if m (if (string= "" (elt m qs-c-fmla)) (elt m qs-c-val) (elt m qs-c-fmla)) nil ))
+                 (m        (avl-tree-member qs-data (qs-rowcol-to-index i (+ 1 j))))
+                 (cell-val (if m (if (string= "" (elt m qs-c-fmla)) (elt m qs-c-val) (elt m qs-c-fmla)) "" ))
                  )
-            ( if (and m (not (string= "" cell-val)))
+            (if (not (string= "" cell-val)) (setq cell-val (concat "\"" (string-replace "\"" "`" cell-val) "\"" )))
+            (setq empty-cells (append empty-cells  (list cell-val)))
+            (if (not (string= "" cell-val))
                 (progn
-                  (if (not (string= "" line)) (push line empty-cells))
-                  (setq line (string-join (append  empty-cells (list (concat "\"" (string-replace "\"" "`" cell-val) "\"" ))) ","))
+                  (setq line (concat (if (string= "" line) nil (concat line ",")) (string-join empty-cells ",")))
                   (setq empty-cells ())
                   )
-              (push "" empty-cells)
-              )     ))
-
+              )))
+        (setq empty-lines (append empty-lines (list line)))
         (if (not (string= "" line))
             (progn
-              (insert (concat (string-join (append empty-lines (list line)) "\n") "\n" ))
+              (insert (concat (string-join empty-lines "\n") "\n"))
               (setq empty-lines ())
-              )
-          (push "" empty-lines)
-          )
+              ))
+        (setq line "")
         )))
   (read-only-mode 1))
 ;;  ____                     _
@@ -567,8 +649,8 @@
         (progn
           (string-match qs-format-re format)
           (let (
-		(neg-type (match-string 1 format))
-		(fmt (match-string 2 format))
+                (neg-type (match-string 1 format))
+                (fmt (match-string 2 format))
                 (exp (match-string 3 format))
                 (dec "")) ;;formatted string
             (let ((value (* (cond
@@ -634,26 +716,24 @@
                       ) ) )
               (if exp
                   (setq dec (concat dec exp)) )
-	      (if (> 0 value) 
-		  (setq dec (cond		
-			     ((string= "b" neg-type) (concat "(" dec ")"))
-			     (t (concat "-" dec))
-			     ))
-		)
-              dec)))      
+              (if (> 0 value)
+                  (setq dec (cond
+                             ((string= "b" neg-type) (concat "(" dec ")"))
+                             (t (concat "-" dec))
+                             ))
+                )
+              dec)))
       val)))
 
 
 
 (defun qs-highlight (txt)
   "highlight text"
-  (let ((myface '((:foreground "White") (:background "Blue"))))
-    (propertize txt 'font-lock-face myface)))
+  (propertize txt 'font-lock-face qs-highlight-face))
 
 (defun qs-row-highlight (txt)
   "highlight text"
-  (let ((myface '((:foreground "#2f3036") (:background "#e6eafa"))))
-    (propertize txt 'font-lock-face myface)))
+  (propertize txt 'font-lock-face qs-row-highlight-face))
 
 (defun qs-pad-center (s i)
   "pad a string out to center it - expects stirng, col no (int)"
@@ -818,7 +898,7 @@
                  (dotimes (row (+ 1 (- maxr minr)))
                    (let ((ovl nil) (row-pos (line-beginning-position (+ 1 row minr))))
                      (setq ovl (make-overlay (+ row-pos col-min) (+ row-pos col-max)))
-                     (overlay-put ovl 'face '((:foreground "White") (:background "Blue")))
+                     (overlay-put ovl 'face qs-highlight-face)
                      (push ovl qs-cursor)
                      ))
                  (setq qs-cur-row new-row)
@@ -834,7 +914,7 @@
                  (setq qs-cursor (make-overlay (+ row-pos col-pos) (+ row-pos col-pos (elt qs-col-widths  new-col))))
                  ))
 
-             (overlay-put qs-cursor 'face '((:foreground "White") (:background "Blue")))
+             (overlay-put qs-cursor 'face qs-highlight-face)
              (setq qs-cur-row new-row)
              (setq qs-cur-col new-col)
              (setq cur-mesg (concat "Cell " (qs-col-letter qs-cur-col) (int-to-string qs-cur-row)
@@ -993,63 +1073,38 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 ;; fuctions dealing with eval
 
 
-(defun qs-s-to-n (str) "converts a string to a number"
-       (if (string-match "^ *\\([0123456789\\.,]+\\) ?\\([kMB%]\\|[eE][\\+-]?[0123456789]+\\)? *$" str)
-           (let ((exp (match-string 2 str))
-                 (num (string-to-number (string-replace "," "" (match-string 1 str))) )
-                 (p 1))
-             (if exp
-                 (progn
-                   (if (string-match "[eE]\\([\\+-]\\)?\\([0123456789]+\\)" exp)
-                       (let ((sign (match-string 1 exp))
-                             (power (match-string 2 exp))
-                             (p 1))
-                         (dotimes (i (string-to-number power))
-                           (setq p (* 10 p)))
-                         (if (equal "-" sign)
-                             (setq p  (/ 1 (float p))))
-                         (setq num (* p num)))
-                     (setq p (cond
-                              ((equal exp "%") .01)
-                              ((equal exp "k") 1000)
-                              ((equal exp "M") 1000000)
-                              ((equal exp "B") 1000000000)
-                              (t 1)
-                              ))
-                     )
-                   (setq num (* p (float num)))
-                   ))
-             num)))
+;; (defun qs-eval-string (formual) "Evaluate a formula (cells already set to values)"
+;;        (let* (
+;;            (function-re "[0-9a-zA-z]+\\(")
+;;            )
 
-
+;;       ))
 
 (defun qs-cell-val (address)
   "get the value of a cell"
   (let ((addr (replace-regexp-in-string "\\$" "" address)))
     (if (string-match qs-range-parts-re addr)
         (progn
-          (let* ((s (qs-addr-to-index (concat  (match-string 1 addr) (match-string 2 addr))))
-                 (cl (- (qs-addr-to-index (concat  (match-string 1 addr) (match-string 4 addr))) s))
-                 (rl (- (qs-addr-to-index (concat  (match-string 3 addr) (match-string 2 addr))) s))
-                 (rv "[") (m 0)
+          (let* ((a (qs-addr-to-rowcol (concat (match-string 1 addr) (match-string 2 addr))))
+                 (b (qs-addr-to-rowcol (concat (match-string 3 addr) (match-string 4 addr))))
+                 (stc (if (< (elt a 0) (elt b 0)) (elt a 0) (elt b 0)));;start col
+                 (edc (if (< (elt a 0) (elt b 0)) (elt b 0) (elt a 0)));;end
+                 (str (if (< (elt a 1) (elt b 1)) (elt a 1) (elt b 1)));;start row
+                 (edr (if (< (elt a 1) (elt b 1)) (elt b 1) (elt a 1)));;end
+                 (row ())
+                 (rows ())
+                 (m 0)
                  )
-            (if (< cl 0)
-                (progn
-                  (setq cl (* -1 cl))
-                  (setq s (- s cl)) ) nil)
-            (if (< rl 0)
-                (progn
-                  (setq rl (* -1 rl))
-                  (setq s (- s rl))) nil )
-            (setq rl (/ rl qs-max-row))
-            (dotimes (r (+ 1 rl))
-              (setq rv (concat rv "["))
-              (dotimes (c (+ 1 cl))
-                (setq m (avl-tree-member qs-data (qs-rowcol-to-index r (+ s c))))
-                (setq rv (concat rv (if m (elt m qs-c-val) "0") (if (= c cl) "]" ",") ))
+            (dotimes (y (+ 1 (- edr str)))
+              (setq row ())
+              (dotimes (x (+ 1 (- edc stc)))
+                (setq m (avl-tree-member qs-data (qs-rowcol-to-index (+ stc x) (+ str y))))
+                (setq row (if (= 0 (length row)) (list (if m (elt m qs-c-val) "0")) (append row  (list (if m (elt m qs-c-val) "0")))))
                 )
-              (setq rv (concat rv (if (= r rl) "]" ",")))
-              ) rv))
+              (setq row (if (= 1 (length row)) (elt row 0) (concat "[" (string-join row ", ") "]")))
+              (setq rows (if (= 0 (length rows)) (list row) (append rows (list row))))
+              )
+            (concat "[" (string-join rows ", ") "]")))
       (progn
         (let ((m (avl-tree-member qs-data  (qs-addr-to-index addr))) )
           (if m (elt m qs-c-val) "0")
@@ -1135,7 +1190,7 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
 (defun qs-add-dep (ca cc)
-  "Add to dep list.
+  "Add CA to CC's dep list.
    CA -- source of information
    CC -- cell to update when ca changes"
   (let ((cc-addr (upcase (string-replace "$" "" cc)))
@@ -1166,9 +1221,9 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 
 (defun qs-del-dep (ca cc)
-  "ca - addr of cell with address
-   cc - addr of cell to remove
-   Remove cc from dep list of celll at ca."
+  "Remove CA from CC's dep list.
+   CA -- source of information
+   CC -- cell to update when ca changes"
   (if (and ca (not (string= "" ca)))
       (let ((cc-addr (upcase (string-replace "$" "" cc)))
             (ca-addr (upcase (string-replace "$" "" ca))))
@@ -1187,10 +1242,44 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
           (let  ( (m (avl-tree-member qs-data (qs-addr-to-index ca-addr))))
             (if (and m (listp (aref m qs-c-deps)) (member cc-addr (aref m qs-c-deps)))
                 (delete cc-addr (aref m qs-c-deps))
-              )
-            )
-          )))
+              ) )
+          )
+        ))
   )
+;;   ___  _   _                    __  _   _      _
+;;  / _ \| |_| |__   ___ _ __     / / | | | | ___| |_ __   ___ _ __
+;; | | | | __| '_ \ / _ \ '__|   / /  | |_| |/ _ \ | '_ \ / _ \ '__|
+;; | |_| | |_| | | |  __/ |     / /   |  _  |  __/ | |_) |  __/ |
+;;  \___/ \__|_| |_|\___|_|    /_/    |_| |_|\___|_| .__/ \___|_|
+;;                                                 |_|
+
+(defun qs-screen-to-col (scol) "get the spreadsheet column from the screen column"
+       (let ((acc qs-row-padding)
+             (col 0)
+             (y (+ scol (window-hscroll)))
+             )
+
+         (while (<= (+ acc (elt qs-col-widths col)) y)
+           (setq acc (+ acc (elt qs-col-widths col)))
+           (setq col (+ 1 col))
+           )
+         col
+         ))
+
+
+
+(defun qs-default-fmt (num ) "get a default format for a number"
+       (let ((nnt (if (numberp num) num (qs-s-to-n num))))
+         (cond
+          ((> .001 nnt) "-0.00E")
+          ((> 1 nnt) "-0.00%")
+          ((< (expt 10 12) nnt) "-0.00E")
+          ((< (expt 10 9) nnt) "b#,##0.#B")
+          ((< (expt 10 6) nnt) "b#,##0.#M")
+          ((< 1000 nnt) "b#,##0.#k")
+          (t qs-default-number-fmt)
+          ))
+       )
 
 
 ;;;###autoload
@@ -1219,15 +1308,15 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
   (setq qs-data (avl-tree-create 'qs-avl-cmp))
   (add-hook 'before-save-hook 'qs-save-csv 90 1)
   (add-hook 'after-save-hook 'qs-draw-all 90 1)
+  (add-hook 'minibuffer-setup-hook (lambda () (setq qs-minibufferp t  )))
+  (add-hook 'minibuffer-exit-hook (lambda () (setq qs-minibufferp nil )))
   (if (and (buffer-file-name) (qs-read-csv-buffer))
 
       nil
     )
   (qs-draw-all)
+  (run-hooks 'after-change-major-mode-hook)
   ;;  (autoarg-kp-mode 1)
-
-
-
   )
 
 ;;  ____        __ __  __       _   _
@@ -1276,6 +1365,3 @@ EX:  From: A1 To: B1 Fun: = A2 / B1
 
 ;; (defmath hello (name) "name" (interactive)
 ;;   (concat "hello " name))
-
-
-  
